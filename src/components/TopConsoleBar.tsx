@@ -6,8 +6,10 @@ import {
   FlipHorizontal2,
   History,
   Layers,
+  Moon,
   Redo2,
   RotateCcw,
+  Sun,
   Undo2,
 } from 'lucide-react';
 import { PosePresetId, SilhouetteDisplayMode } from '../types';
@@ -21,7 +23,10 @@ interface TopConsoleBarProps {
   showFigure: boolean;
   onToggleFigure: () => void;
   silhouetteMode: SilhouetteDisplayMode;
+  darkMode?: boolean;
+  onToggleDarkMode?: () => void;
   onToggleSilhouetteMode: () => void;
+  onToggleWireframeOverlay?: () => void;
   activePreset: PosePresetId | null;
   onSelectPreset: (preset: PosePresetId) => void;
   onMirrorPose: () => void;
@@ -35,7 +40,7 @@ interface TopConsoleBarProps {
 }
 
 const POSE_PRESETS: { id: PosePresetId; label: string }[] = [
-  { id: 'tpose', label: 'T-Pose' },
+  { id: 'tpose', label: 'Bitruvian T Pose' },
   { id: 'vitruvian', label: 'Vitruvian' },
   { id: 'contrapposto', label: 'Contrapposto' },
   { id: 'striding', label: 'Striding' },
@@ -48,7 +53,10 @@ export const TopConsoleBar: React.FC<TopConsoleBarProps> = ({
   showFigure,
   onToggleFigure,
   silhouetteMode,
+  darkMode = false,
+  onToggleDarkMode,
   onToggleSilhouetteMode,
+  onToggleWireframeOverlay,
   activePreset,
   onSelectPreset,
   onMirrorPose,
@@ -63,15 +71,16 @@ export const TopConsoleBar: React.FC<TopConsoleBarProps> = ({
   const isStudio = activeWorkspaceTab === 'studio';
 
   return (
-    <header className="h-11 px-4 console-panel border-t-0 border-x-0 flex items-center justify-between gap-4 z-20 shrink-0">
+    <header className="h-11 px-3 console-panel border-t-0 border-x-0 flex items-center justify-between gap-2 z-20 shrink-0 min-w-0">
       {/* Brand Wordmark + Primary Workspace Tabs (Studio | Roadmap) */}
-      <div className="flex items-center gap-3 min-w-0 shrink-0">
+      <div className="flex items-center gap-2.5 min-w-0 shrink-0">
         <button
           type="button"
           onClick={() => onSelectWorkspaceTab('studio')}
-          className="font-typewriter font-bold text-sm sm:text-base tracking-[0.06em] text-[#F5EFFA] hover:text-white whitespace-nowrap shrink-0 cursor-pointer"
+          className="font-typewriter font-bold text-xs sm:text-sm tracking-[0.06em] text-[#F5EFFA] hover:text-white whitespace-nowrap shrink-0 cursor-pointer"
         >
-          BITRUVIUS EVOLVED
+          <span className="hidden md:inline">BITRUVIUS EVOLVED</span>
+          <span className="md:hidden">BITRUVIUS</span>
         </button>
 
         <nav
@@ -114,7 +123,7 @@ export const TopConsoleBar: React.FC<TopConsoleBarProps> = ({
       </div>
 
       {/* Right Workspace Actions (All controls docked strictly outside canvas) */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 min-w-0 overflow-x-auto no-scrollbar">
         {isStudio && (
           <>
             {showFigure && (
@@ -168,23 +177,64 @@ export const TopConsoleBar: React.FC<TopConsoleBarProps> = ({
                   </button>
                 </div>
 
+                {onToggleDarkMode && (
+                  <button
+                    type="button"
+                    onClick={onToggleDarkMode}
+                    title={
+                      darkMode
+                        ? 'Switch to light paper'
+                        : 'Switch to dark mode (silhouette becomes light)'
+                    }
+                    aria-pressed={darkMode}
+                    className={`px-2 py-1 text-[10.5px] font-vera font-bold rounded-[3px] border flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      darkMode
+                        ? 'bg-[#EFEAF4] text-[#16001E] border-[#EFEAF4]'
+                        : 'bg-[#21072B] text-[#E6DCF0] hover:bg-[#310E3F] border-[#EBE0F5]/18'
+                    }`}
+                  >
+                    {darkMode ? <Sun className="w-3 h-3" /> : <Moon className="w-3 h-3" />}
+                    {darkMode ? 'Light' : 'Dark'}
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={onToggleSilhouetteMode}
-                  title={
-                    silhouetteMode === 'wireframe'
-                      ? 'Strip wireframe overlays for Pure Shadow display'
-                      : 'Restore 10px red joint dots and 3px armature wireframe'
-                  }
+                  title="Cycle display: Pure Shadow → Bitruvian Purple → Hybrid Overlay → Wireframe"
                   className={`px-2.5 py-1 text-[10.5px] font-vera font-bold rounded-[3px] border flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    silhouetteMode === 'pure_shadow'
-                      ? 'bg-[#361547] text-[#FAF6FF] border-[#D8B4FE]/40'
-                      : 'bg-[#21072B] text-[#E6DCF0] hover:bg-[#310E3F] border-[#EBE0F5]/18'
+                    silhouetteMode === 'wireframe'
+                      ? 'bg-[#21072B] text-[#E6DCF0] hover:bg-[#310E3F] border-[#EBE0F5]/18'
+                      : 'bg-[#361547] text-[#FAF6FF] border-[#D8B4FE]/40'
                   }`}
                 >
                   <Layers className="w-3 h-3" />
-                  {silhouetteMode === 'wireframe' ? 'Wireframe' : 'Pure Shadow'}
+                  {silhouetteMode === 'wireframe'
+                    ? 'Wireframe'
+                    : silhouetteMode === 'hybrid_overlay'
+                    ? 'Hybrid Overlay'
+                    : silhouetteMode === 'purple_skeleton'
+                    ? 'Bitruvian Purple'
+                    : 'Pure Shadow'}
                 </button>
+
+                {onToggleWireframeOverlay && (
+                  <button
+                    type="button"
+                    onClick={onToggleWireframeOverlay}
+                    aria-pressed={
+                      silhouetteMode === 'hybrid_overlay' || silhouetteMode === 'wireframe'
+                    }
+                    title="Toggle on-canvas wireframe overlay"
+                    className={`px-2 py-1 text-[10.5px] font-vera font-bold rounded-[3px] border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      silhouetteMode === 'hybrid_overlay' || silhouetteMode === 'wireframe'
+                        ? 'bg-[#052E16]/80 text-[#86EFAC] border-[#4ADE80]/45'
+                        : 'bg-[#21072B] text-[#C8B2E0] hover:text-[#FAF6FF] border-[#EBE0F5]/18'
+                    }`}
+                  >
+                    Overlay
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -215,7 +265,7 @@ export const TopConsoleBar: React.FC<TopConsoleBarProps> = ({
             <button
               type="button"
               onClick={onResetPose}
-              title="Reset to canonical Vitruvian T-Pose baseline"
+              title="Reset to canonical Bitruvian T Pose baseline"
               className="px-2.5 py-1 text-[10.5px] font-vera font-bold text-[#E6DCF0] bg-[#21072B] hover:bg-[#310E3F] border border-[#EBE0F5]/18 rounded-[3px] flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <RotateCcw className="w-3 h-3" />

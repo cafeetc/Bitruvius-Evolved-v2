@@ -135,3 +135,16 @@ input[type="range"].bitruvius-slider::-moz-range-thumb {
   border: 1px solid #16001e;
   cursor: pointer;
 }
+
+@keyframes activePieceFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.active-piece-fade {
+  animation: activePieceFadeIn 0.18s ease-out both;
+}

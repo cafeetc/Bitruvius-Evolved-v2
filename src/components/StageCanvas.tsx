@@ -54,7 +54,25 @@ interface StageCanvasProps {
   intertitleDismissing: boolean;
   onTriggerDismissIntertitle: () => void;
   onIntertitleDismissComplete: () => void;
+  onCycleHeadTurn?: () => void;
+  darkMode?: boolean;
+  selectionArmed?: boolean;
 }
+
+const STAGE_THEMES = {
+  light: {
+    paper: '#E0E0E0',
+    inkRgb: '22, 0, 30',
+    inkHex: '#16001E',
+    silhouette: '#261D2E',
+  },
+  dark: {
+    paper: '#0D0612',
+    inkRgb: '239, 234, 244',
+    inkHex: '#EFEAF4',
+    silhouette: '#EFEAF4',
+  },
+} as const;
 
 type ActiveDragState =
   | {
@@ -80,7 +98,7 @@ type ActiveDragState =
       targetJointId: JointId;
       pivotX: number;
       pivotY: number;
-      lastCursorDeg: number;
+      lastCursorDeg: number | null;
       rawAngle: number;
     };
 
@@ -111,7 +129,11 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
   intertitleDismissing,
   onTriggerDismissIntertitle,
   onIntertitleDismissComplete,
+  onCycleHeadTurn,
+  darkMode = false,
+  selectionArmed = true,
 }) => {
+  const theme = darkMode ? STAGE_THEMES.dark : STAGE_THEMES.light;
   const internalSvgRef = useRef<SVGSVGElement | null>(null);
   const svgRef = externalSvgRef ?? internalSvgRef;
   const [viewportSize, setViewportSize] = useState({ width: 1440, height: 900 });
@@ -209,12 +231,17 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
   const startCumulativeFKRotate = useCallback(
     (e: React.PointerEvent, targetJointId: JointId) => {
       const runtime = armature.joints[targetJointId];
-      if (!runtime || runtime.mode === 'PIN' || runtime.physicsMode === 'rigid') return;
+      const spec = JOINT_SPEC_MAP[targetJointId];
+      if (!runtime || spec?.locked || runtime.mode === 'PIN' || runtime.physicsMode === 'rigid') {
+        return;
+      }
 
       const world = clientToWorld(e.clientX, e.clientY);
       const pivot = computedJoints[targetJointId];
-      const cursorDeg = (Math.atan2(world.y - pivot.y, world.x - pivot.x) * 180) / Math.PI;
-      const rawAngle = targetJointId === 'waist' ? armature.rootRotation : runtime.localAngle;
+      const dist = Math.hypot(world.x - pivot.x, world.y - pivot.y);
+      const lastCursorDeg =
+        dist >= 4 ? (Math.atan2(world.y - pivot.y, world.x - pivot.x) * 180) / Math.PI : null;
+      const rawAngle = targetJointId === 'pelvis' ? armature.rootRotation : runtime.localAngle;
 
       svgRef.current?.setPointerCapture(e.pointerId);
       setDragState({
@@ -222,7 +249,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
         targetJointId,
         pivotX: pivot.x,
         pivotY: pivot.y,
-        lastCursorDeg: cursorDeg,
+        lastCursorDeg,
         rawAngle,
       });
     },
@@ -239,7 +266,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
       const sy = e.clientY - rect.top;
 
       const factor = e.deltaY < 0 ? 1.1 : 0.909;
-      const nextZoom = Math.max(0.15, Math.min(4.0, zoom * factor));
+      const nextZoom = Math.max(0.08, Math.min(4.0, zoom * factor));
       const worldX = (sx - pan.x) / zoom;
       const worldY = (sy - pan.y) / zoom;
 
@@ -272,11 +299,11 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
       onSelectJoint(jointId);
       const joint = computedJoints[jointId];
-      if (joint.mode === 'PIN' || armature.joints[jointId].physicsMode === 'rigid') return;
-
+      const spec = JOINT_SPEC_MAP[jointId];
       const world = clientToWorld(e.clientX, e.clientY);
 
-      if (joint.mode === 'ROOT' || jointId === 'waist') {
+      if (joint.mode === 'ROOT' || jointId === 'pelvis') {
+        if (armature.joints.pelvis.physicsMode === 'rigid') return;
         if (!armature.isAnchorPinned) {
           svgRef.current?.setPointerCapture(e.pointerId);
           setDragState({
@@ -285,12 +312,13 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
             offsetY: joint.y - world.y,
           });
         } else {
-          startCumulativeFKRotate(e, 'waist');
+          startCumulativeFKRotate(e, 'pelvis');
         }
         return;
       }
 
       if (joint.mode === 'IK' && joint.spec.ikChain) {
+        if (armature.joints[jointId].physicsMode === 'rigid') return;
         svgRef.current?.setPointerCapture(e.pointerId);
         setDragState({
           type: 'ik',
@@ -301,11 +329,19 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
         return;
       }
 
-      // FK dot drag: dragging distal segment tip aims parent bone under pointer; socket origins rotate self
-      const spec = JOINT_SPEC_MAP[jointId];
-      const aimJointId =
-        spec.parentId && !spec.socketOffset ? spec.parentId : jointId;
-      startCumulativeFKRotate(e, aimJointId);
+      // If locked/tip dot is dragged (e.g. toeR, fingerTipR, swivelTipR, chinTip), aim its unlocked parent
+      let targetId: JointId = jointId;
+      if (spec.isTip || spec.locked) {
+        let cur: JointId | null = spec.parentId;
+        while (cur && JOINT_SPEC_MAP[cur]?.locked) {
+          cur = JOINT_SPEC_MAP[cur].parentId;
+        }
+        if (cur) targetId = cur;
+      }
+
+      const targetRt = armature.joints[targetId];
+      if (!targetRt || targetRt.mode === 'PIN' || targetRt.physicsMode === 'rigid') return;
+      startCumulativeFKRotate(e, targetId);
     },
     [
       armature.isAnchorPinned,
@@ -331,14 +367,14 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
       const runtime = armature.joints[jointId];
       if (!runtime || runtime.mode === 'PIN' || runtime.physicsMode === 'rigid') return;
 
-      if (jointId === 'waist' && !armature.isAnchorPinned) {
+      if (jointId === 'pelvis' && !armature.isAnchorPinned) {
         const world = clientToWorld(e.clientX, e.clientY);
-        const waist = computedJoints.waist;
+        const pelvis = computedJoints.pelvis;
         svgRef.current?.setPointerCapture(e.pointerId);
         setDragState({
           type: 'root_translate',
-          offsetX: waist.x - world.x,
-          offsetY: waist.y - world.y,
+          offsetX: pelvis.x - world.x,
+          offsetY: pelvis.y - world.y,
         });
         return;
       }
@@ -357,9 +393,9 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     ]
   );
 
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent<SVGSVGElement>) => {
-      const world = clientToWorld(e.clientX, e.clientY);
+  const processPointerMove = useCallback(
+    (clientX: number, clientY: number) => {
+      const world = clientToWorld(clientX, clientY);
       onCursorMove({
         x: world.x - originOffset.x,
         y: world.y - originOffset.y,
@@ -369,8 +405,8 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
       if (dragState.type === 'pan') {
         onPanChange({
-          x: dragState.startPanX + (e.clientX - dragState.startClientX),
-          y: dragState.startPanY + (e.clientY - dragState.startClientY),
+          x: dragState.startPanX + (clientX - dragState.startClientX),
+          y: dragState.startPanY + (clientY - dragState.startClientY),
         });
         return;
       }
@@ -402,7 +438,15 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
       if (dragState.type === 'fk_rotate') {
         const { targetJointId, pivotX, pivotY, lastCursorDeg, rawAngle } = dragState;
+        const distFromPivot = Math.hypot(world.x - pivotX, world.y - pivotY);
+        if (distFromPivot < 4) return;
+
         const currDeg = (Math.atan2(world.y - pivotY, world.x - pivotX) * 180) / Math.PI;
+        if (lastCursorDeg === null) {
+          setDragState({ ...dragState, lastCursorDeg: currDeg });
+          return;
+        }
+
         const deltaCursor = shortestAngleDelta(lastCursorDeg, currDeg);
         if (Math.abs(deltaCursor) < 1e-4) return;
 
@@ -425,7 +469,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
           rawAngle: nextRawAngle,
         });
 
-        if (targetJointId === 'waist') {
+        if (targetJointId === 'pelvis') {
           onUpdateArmature({
             ...armature,
             rootRotation: nextAppliedAngle,
@@ -457,8 +501,45 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     ]
   );
 
+  const pendingMoveRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  const flushPendingMove = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    const coords = pendingMoveRef.current;
+    pendingMoveRef.current = null;
+    if (coords) {
+      processPointerMove(coords.clientX, coords.clientY);
+    }
+  }, [processPointerMove]);
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      pendingMoveRef.current = { clientX: e.clientX, clientY: e.clientY };
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          flushPendingMove();
+        });
+      }
+    },
+    [flushPendingMove]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
+
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
+      flushPendingMove();
       if (dragState) {
         try {
           e.currentTarget.releasePointerCapture(e.pointerId);
@@ -471,7 +552,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
         setDragState(null);
       }
     },
-    [dragState, onCommitPoseHistory]
+    [dragState, onCommitPoseHistory, flushPendingMove]
   );
 
   const endlessBounds = useMemo(() => {
@@ -599,7 +680,13 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
   );
 
   const sideCallouts = useMemo(() => {
-    if (!showFigure || !modelBounds || silhouetteMode === 'pure_shadow') return [];
+    if (
+      !showFigure ||
+      !modelBounds ||
+      (silhouetteMode !== 'wireframe' && silhouetteMode !== 'hybrid_overlay')
+    ) {
+      return [];
+    }
     return computePushedSideCallouts(
       armature,
       computedJoints,
@@ -628,8 +715,10 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
   return (
     <div
       ref={stageRef}
-      className="relative w-full h-full overflow-hidden bg-[#E0E0E0] select-none"
+      data-stage-viewport="true"
+      className="relative w-full h-full overflow-hidden select-none"
       style={{
+        backgroundColor: theme.paper,
         cursor:
           dragState?.type === 'pan'
             ? 'grabbing'
@@ -638,9 +727,24 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
             : 'crosshair',
       }}
     >
+      {/* Paper Canvas Surface Background Layer (mounted behind main SVG plane) */}
+      <div
+        aria-hidden="true"
+        data-paper-surface="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `url(${REPOSITORY_ASSET_PATHS.analogPaperPng})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          opacity: darkMode ? 0.08 : 0.22,
+          filter: darkMode ? 'invert(1)' : undefined,
+        }}
+      />
+
       <svg
         ref={svgRef}
-        className="w-full h-full block touch-none"
+        className="relative z-[1] w-full h-full block touch-none"
         onWheel={handleWheel}
         onPointerDown={handlePointerDownStage}
         onPointerMove={handlePointerMove}
@@ -659,7 +763,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
             <path
               d={`M ${SUBPYXL_PX} 0 L 0 0 0 ${SUBPYXL_PX}`}
               fill="none"
-              stroke="rgba(22, 0, 30, 0.10)"
+              stroke={`rgba(${theme.inkRgb}, 0.10)`}
               strokeWidth={0.5}
               vectorEffect="non-scaling-stroke"
             />
@@ -676,7 +780,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
             <path
               d={`M ${PYXL_PX} 0 L 0 0 0 ${PYXL_PX}`}
               fill="none"
-              stroke="rgba(22, 0, 30, 0.24)"
+              stroke={`rgba(${theme.inkRgb}, 0.24)`}
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
             />
@@ -693,7 +797,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
             <path
               d={`M ${MEGAPYXL_PX} 0 L 0 0 0 ${MEGAPYXL_PX}`}
               fill="none"
-              stroke="rgba(22, 0, 30, 0.52)"
+              stroke={`rgba(${theme.inkRgb}, 0.52)`}
               strokeWidth={1.75}
               vectorEffect="non-scaling-stroke"
             />
@@ -730,13 +834,13 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
         </defs>
 
         <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`} style={{ isolation: 'isolate' }}>
-          {/* Unified Neutral Grayscale Endless Canvas (#E0E0E0 inside and out) */}
+          {/* Transparent Hit Surface Over Paper Canvas Texture */}
           <rect
             x={endlessBounds.minX}
             y={endlessBounds.minY}
             width={endlessBounds.width}
             height={endlessBounds.height}
-            fill="#E0E0E0"
+            fill="transparent"
             data-stage-pan="true"
           />
 
@@ -780,7 +884,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
               y1={endlessBounds.minY}
               x2={originOffset.x}
               y2={endlessBounds.maxY}
-              stroke="rgba(22, 0, 30, 0.45)"
+              stroke={`rgba(${theme.inkRgb}, 0.45)`}
               strokeWidth={1.25}
               vectorEffect="non-scaling-stroke"
               pointerEvents="none"
@@ -790,7 +894,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
               y1={originOffset.y}
               x2={endlessBounds.maxX}
               y2={originOffset.y}
-              stroke="rgba(22, 0, 30, 0.45)"
+              stroke={`rgba(${theme.inkRgb}, 0.45)`}
               strokeWidth={1.25}
               vectorEffect="non-scaling-stroke"
               pointerEvents="none"
@@ -800,8 +904,8 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
               transform={`translate(${originOffset.x}, ${originOffset.y}) scale(${1 / zoom})`}
               pointerEvents="none"
             >
-              <circle r={7} fill="none" stroke="rgba(22, 0, 30, 0.65)" strokeWidth={1.25} />
-              <circle r={2} fill="rgba(22, 0, 30, 0.85)" />
+              <circle r={7} fill="none" stroke={`rgba(${theme.inkRgb}, 0.65)`} strokeWidth={1.25} />
+              <circle r={2} fill={`rgba(${theme.inkRgb}, 0.85)`} />
             </g>
           </g>
 
@@ -816,46 +920,48 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
             modelBounds={modelBounds}
             sideCallouts={sideCallouts}
             extraExclusions={[legendExclusionWorld]}
+            viewportBottomY={(viewportSize.height - pan.y - 36) / zoom}
             onTriggerDismiss={onTriggerDismissIntertitle}
             onDismissComplete={onIntertitleDismissComplete}
+            inkFill={theme.inkHex}
           />
 
           {/* Vitruvian Proportions Classical Circle & Square Overlay */}
           {grid.showVitruvianGuide && (
             <g pointerEvents="none">
               <rect
-                x={computedJoints.waist.x - 535}
-                y={computedJoints.waist.y - 530}
+                x={computedJoints.pelvis.x - 535}
+                y={computedJoints.pelvis.y - 530}
                 width={1070}
                 height={1060}
                 fill="none"
-                stroke="rgba(22, 0, 30, 0.34)"
+                stroke={`rgba(${theme.inkRgb}, 0.34)`}
                 strokeWidth={1.25}
                 vectorEffect="non-scaling-stroke"
               />
               <circle
-                cx={computedJoints.navel.x}
-                cy={computedJoints.navel.y}
+                cx={computedJoints.lumbar.x}
+                cy={computedJoints.lumbar.y}
                 r={635}
                 fill="none"
-                stroke="rgba(22, 0, 30, 0.34)"
+                stroke={`rgba(${theme.inkRgb}, 0.34)`}
                 strokeWidth={1.25}
                 strokeDasharray="5 5"
                 vectorEffect="non-scaling-stroke"
               />
               <line
-                x1={computedJoints.waist.x}
-                y1={computedJoints.waist.y - 600}
-                x2={computedJoints.waist.x}
-                y2={computedJoints.waist.y + 600}
-                stroke="rgba(22, 0, 30, 0.22)"
+                x1={computedJoints.pelvis.x}
+                y1={computedJoints.pelvis.y - 600}
+                x2={computedJoints.pelvis.x}
+                y2={computedJoints.pelvis.y + 600}
+                stroke={`rgba(${theme.inkRgb}, 0.22)`}
                 strokeWidth={1}
                 vectorEffect="non-scaling-stroke"
               />
             </g>
           )}
 
-          {/* Procedural 18-Joint Silhouette & Wireframe Mannequin */}
+          {/* Procedural 43-Joint Silhouette & Wireframe Mannequin */}
           {showFigure && (
             <Mannequin
               armature={armature}
@@ -871,6 +977,9 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
               onHoverJoint={onHoverJoint}
               onPointerDownJoint={handlePointerDownJoint}
               onPointerDownBone={handlePointerDownBone}
+              onCycleHeadTurn={onCycleHeadTurn}
+              silhouetteInk={theme.silhouette}
+              selectionArmed={selectionArmed}
             />
           )}
         </g>
@@ -898,8 +1007,15 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
             preserveAspectRatio="none"
           >
             <defs>
-              <filter id="vector-border-grayscale">
-                <feColorMatrix type="saturate" values="0" />
+              <filter id="vector-border-grayscale" colorInterpolationFilters="sRGB">
+                <feColorMatrix type="saturate" values="0" result="gray" />
+                <feColorMatrix
+                  in="gray"
+                  type="matrix"
+                  values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -6 0 0 0 4"
+                  result="rimAlpha"
+                />
+                <feComposite in="rimAlpha" in2="SourceGraphic" operator="in" />
               </filter>
             </defs>
             <g opacity={borderOpacity} filter="url(#vector-border-grayscale)">
@@ -949,10 +1065,10 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
                       y2={tick.tier === 'mega' ? 9 : tick.tier === 'major' ? 7 : 4}
                       stroke={
                         tick.tier === 'mega'
-                          ? 'rgba(22, 0, 30, 0.82)'
+                          ? `rgba(${theme.inkRgb}, 0.82)`
                           : tick.tier === 'major'
-                          ? 'rgba(22, 0, 30, 0.56)'
-                          : 'rgba(22, 0, 30, 0.28)'
+                          ? `rgba(${theme.inkRgb}, 0.56)`
+                          : `rgba(${theme.inkRgb}, 0.28)`
                       }
                       strokeWidth={tick.tier === 'mega' ? 1.5 : 1}
                     />
@@ -963,10 +1079,10 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
                         textAnchor="middle"
                         fill={
                           tick.tier === 'mega'
-                            ? '#16001E'
+                            ? theme.inkHex
                             : tick.tier === 'major'
-                            ? 'rgba(22, 0, 30, 0.78)'
-                            : 'rgba(22, 0, 30, 0.55)'
+                            ? `rgba(${theme.inkRgb}, 0.78)`
+                            : `rgba(${theme.inkRgb}, 0.55)`
                         }
                         fontSize={tick.tier === 'mega' ? 10.5 : 9.5}
                         fontWeight={tick.tier === 'mega' ? 700 : 400}
@@ -986,10 +1102,10 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
                       y2={0}
                       stroke={
                         tick.tier === 'mega'
-                          ? 'rgba(22, 0, 30, 0.82)'
+                          ? `rgba(${theme.inkRgb}, 0.82)`
                           : tick.tier === 'major'
-                          ? 'rgba(22, 0, 30, 0.56)'
-                          : 'rgba(22, 0, 30, 0.28)'
+                          ? `rgba(${theme.inkRgb}, 0.56)`
+                          : `rgba(${theme.inkRgb}, 0.28)`
                       }
                       strokeWidth={tick.tier === 'mega' ? 1.5 : 1}
                     />
@@ -1000,10 +1116,10 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
                         textAnchor="start"
                         fill={
                           tick.tier === 'mega'
-                            ? '#16001E'
+                            ? theme.inkHex
                             : tick.tier === 'major'
-                            ? 'rgba(22, 0, 30, 0.78)'
-                            : 'rgba(22, 0, 30, 0.55)'
+                            ? `rgba(${theme.inkRgb}, 0.78)`
+                            : `rgba(${theme.inkRgb}, 0.55)`
                         }
                         fontSize={tick.tier === 'mega' ? 10.5 : 9.5}
                         fontWeight={tick.tier === 'mega' ? 700 : 400}
@@ -1022,27 +1138,28 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
       {/* Micro Top-Left Corner Drafting Scale Legend (zooms gently on hover for easy reading) */}
       <div
-        className="absolute left-[30px] top-[30px] z-[8] origin-top-left transition-all duration-200 ease-out hover:scale-[1.85] bg-[#E0E0E0]/88 backdrop-blur-[2px] border border-[#16001E]/28 hover:border-[#16001E]/55 rounded-[2px] px-1.5 py-0.5 text-[#16001E] cursor-help hover:shadow-sm"
+        className="absolute left-[30px] top-[30px] z-[8] origin-top-left transition-all duration-200 ease-out hover:scale-[1.85] backdrop-blur-[2px] border border-current/28 hover:border-current/55 rounded-[2px] px-1.5 py-0.5 cursor-help hover:shadow-sm"
+        style={{ background: theme.paper, color: theme.inkHex }}
         aria-label="Grid scale legend"
       >
-        <div className="font-typewriter font-bold text-[6.5px] uppercase tracking-[0.06em] text-[#16001E]/65 pb-[1px] mb-[2px] border-b border-[#16001E]/15">
+        <div className="font-typewriter font-bold text-[6.5px] uppercase tracking-[0.06em] opacity-65 pb-[1px] mb-[2px] border-b border-current/15">
           scale
         </div>
         <div className="space-y-[1px] font-typewriter text-[7px] leading-[1.2]">
           <div className="flex items-center gap-1 whitespace-nowrap">
-            <span className="inline-block w-2.5 h-[1.5px] bg-[#16001E]/75 shrink-0" />
+            <span className="inline-block w-2.5 h-[1.5px] bg-current/75 shrink-0" />
             <span className="font-bold">1 mpyx</span>
-            <span className="text-[#16001E]/60">10 pyx</span>
+            <span className="opacity-60">10 pyx</span>
           </div>
           <div className="flex items-center gap-1 whitespace-nowrap">
-            <span className="inline-block w-2.5 h-[1px] bg-[#16001E]/50 shrink-0" />
+            <span className="inline-block w-2.5 h-[1px] bg-current/50 shrink-0" />
             <span className="font-bold">1 pyx</span>
-            <span className="text-[#16001E]/60">100 px</span>
+            <span className="opacity-60">100 px</span>
           </div>
           <div className="flex items-center gap-1 whitespace-nowrap">
-            <span className="inline-block w-2.5 h-[0.5px] bg-[#16001E]/30 shrink-0" />
+            <span className="inline-block w-2.5 h-[0.5px] bg-current/30 shrink-0" />
             <span className="font-bold">0.1 pyx</span>
-            <span className="text-[#16001E]/60">10 px</span>
+            <span className="opacity-60">10 px</span>
           </div>
         </div>
       </div>

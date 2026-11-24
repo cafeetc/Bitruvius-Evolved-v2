@@ -1,34 +1,37 @@
-export type SkeletonNodeId =
+export type PuppytNodeId =
   | 'head'
   | 'neck'
   | 'thorax'
-  | 'lumbar'
-  | 'ribR'
-  | 'ribL'
-  | 'braceR'
   | 'braceL'
-  | 'acromionR'
+  | 'braceR'
   | 'acromionL'
-  | 'swivelR'
-  | 'swivelL'
-  | 'humerusR'
+  | 'acromionR'
   | 'humerusL'
-  | 'forearmR'
+  | 'humerusR'
+  | 'swivelL'
+  | 'swivelR'
+  | 'lumbar'
   | 'forearmL'
-  | 'handR'
-  | 'handL'
-  | 'hipR'
-  | 'hipL'
+  | 'forearmR'
   | 'femurR'
   | 'femurL'
+  | 'handL'
+  | 'handR'
   | 'shinR'
   | 'shinL'
   | 'footR'
-  | 'footL';
+  | 'footL'
+  | 'hipR'
+  | 'hipL'
+  | 'ribR'
+  | 'ribL';
 
-export interface SkeletonPieceAsset {
+export type SkeletonNodeId = PuppytNodeId;
+
+export interface PuppytPieceAsset {
+  id: string;
   key: string;
-  nodeId: SkeletonNodeId;
+  nodeId: PuppytNodeId;
   pieceIndex: number;
   name: string;
   side: 'center' | 'right' | 'left';
@@ -40,16 +43,74 @@ export interface SkeletonPieceAsset {
   assetUrl: string;
 }
 
+export type SkeletonPieceAsset = PuppytPieceAsset;
+
 /**
- * Post-antiPhallic (shiftY = -278) landmark coordinates from Bitruvian.Human.Puppyt
- * in its canonical 2500 x 8742 anatomical coordinate space.
+ * Canonical Puppyt anatomical keypoints (in post-antiPhallic rig coordinates)
+ * used for aligning pieces and rendering the underlying digital model.
+ * Provides both descriptive Pivot names and concise landmark aliases.
  */
 export const PUPPYT_LANDMARKS = {
+  // Primary pivots (post-antiPhallic rig coordinates)
+  pelvisPivot: [1257, 3382] as const,
+  hipRFemurPivot: [990, 3598] as const,
+  hipLFemurPivot: [1521, 3598] as const,
+  hipRTip: [825, 3115] as const,
+  hipLTip: [1689, 3115] as const,
+  thoraxPivot: [1257.5, 2099.5] as const,
+  ribRPivot: [1257.5, 2155.5] as const,
+  ribLPivot: [1257.5, 2099.5] as const,
+  ribRTip: [895, 1617] as const,
+  ribLTip: [1620, 1561] as const,
+  neckPivot: [1258, 862.5] as const,
+  headPivot: [1260, 595.5] as const,
+  lipPivot: [1259, 407] as const,
+  crownTip: [1260, -260] as const,
+  skullTriangle: [
+    [1006, -138], // 140 + shiftY(-278)
+    [1511, -138],
+    [1259, 612],  // 890 + shiftY(-278)
+  ] as const,
+  swivelRPivot: [1254, 2156] as const,
+  swivelLPivot: [1249, 2100] as const,
+  swivelTipRPivot: [483, 1112] as const,
+  swivelTipLPivot: [2031, 1056] as const,
+  acromionRPivot: [688, 1112] as const,
+  acromionLPivot: [1815, 1056] as const,
+  wingRPivot: [1005, 1313.5] as const,
+  wingLPivot: [1509, 1313.5] as const,
+  humerusRPivot: [566.5, 1150.5] as const,
+  humerusLPivot: [1936.5, 1094.5] as const,
+  forearmRPivot: [491.5, 2351.5] as const,
+  forearmLPivot: [2011.5, 2295.5] as const,
+  handRPivot: [493.5, 3611] as const,
+  handLPivot: [2009.5, 3555] as const,
+  handRTip: [493.5, 4436] as const,
+  handLTip: [2009.5, 4375] as const,
+  thumbRPivot: [545, 3752] as const,
+  thumbTipRPivot: [609, 4069] as const,
+  fingerRPivot: [492, 3905] as const,
+  fingerTipRPivot: [492, 4419] as const,
+  thumbLPivot: [1959, 3752] as const,
+  thumbTipLPivot: [1895, 4069] as const,
+  fingerLPivot: [2012, 3905] as const,
+  fingerTipLPivot: [2012, 4419] as const,
+  shinRPivot: [865, 5536] as const,
+  shinLPivot: [1626, 5536] as const,
+  footRPivot: [833, 7013.5] as const,
+  footLPivot: [1658, 7013.5] as const,
+  toeRTip: [192, 7593] as const,
+  toeLTip: [2296, 7593] as const,
+
+  // Compatibility aliases
   pelvis: [1257, 3382] as const,
   lumbar: [1257, 3382] as const,
   thorax: [1257.5, 2099.5] as const,
+  ribR: [1257.5, 2155.5] as const,
+  ribL: [1257.5, 2099.5] as const,
   neck: [1258, 862.5] as const,
   head: [1260, 595.5] as const,
+  lip: [1259, 407] as const,
   skullTempleR: [1006, -138] as const,
   skullTempleL: [1511, -138] as const,
   chinTip: [1259, 612] as const,
@@ -58,12 +119,26 @@ export const PUPPYT_LANDMARKS = {
   acromionL: [1815, 1056] as const,
   swivelR: [1254, 2156] as const,
   swivelL: [1249, 2100] as const,
+  swivelTipR: [483, 1112] as const,
+  swivelTipL: [2031, 1056] as const,
+  braceR: [1258, 862.5] as const,
+  braceL: [1258, 862.5] as const,
+  wingR: [1005, 1313.5] as const,
+  wingL: [1509, 1313.5] as const,
   humerusR: [566.5, 1150.5] as const,
   humerusL: [1936.5, 1094.5] as const,
   forearmR: [491.5, 2351.5] as const,
   forearmL: [2011.5, 2295.5] as const,
   handR: [493.5, 3611] as const,
   handL: [2009.5, 3555] as const,
+  thumbR: [545, 3752] as const,
+  thumbTipR: [609, 4069] as const,
+  fingerR: [492, 3905] as const,
+  fingerTipR: [492, 4419] as const,
+  thumbL: [1959, 3752] as const,
+  thumbTipL: [1895, 4069] as const,
+  fingerL: [2012, 3905] as const,
+  fingerTipL: [2012, 4419] as const,
   femurR: [990, 3598] as const,
   femurL: [1521, 3598] as const,
   shinR: [865, 5536] as const,
@@ -74,8 +149,14 @@ export const PUPPYT_LANDMARKS = {
   toeL: [2296, 7593] as const,
 } as const;
 
-export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
-  {
+/**
+ * Canonical Puppyt purple-skeleton cutout piece definitions extracted from
+ * Bitruvian.Human.Puppyt (rig-data.json) after addJoints + applyAntiPhallicLowerSpine,
+ * updated with refined ribs, shoulders, and hip geometry.
+ */
+export const PUPPYT_SKELETON_PIECES_RECORD: Record<string, PuppytPieceAsset> = {
+  head_front: {
+    id: 'head_front',
     key: 'head-front',
     nodeId: 'head',
     pieceIndex: 11,
@@ -88,7 +169,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 896,
     assetUrl: '/assets/skeleton/head-front-4716271393.png',
   },
-  {
+  neck_v: {
+    id: 'neck_v',
     key: 'neck-v',
     nodeId: 'neck',
     pieceIndex: 12,
@@ -101,7 +183,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 352,
     assetUrl: '/assets/skeleton/neck-v-8cb361a859.png',
   },
-  {
+  thorax_upperspine: {
+    id: 'thorax_upperspine',
     key: 'thorax-upperspine',
     nodeId: 'thorax',
     pieceIndex: 15,
@@ -114,7 +197,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1319,
     assetUrl: '/assets/skeleton/thorax-upperspine-25a71c507d.png',
   },
-  {
+  thorax_neckring: {
+    id: 'thorax_neckring',
     key: 'thorax-neckring',
     nodeId: 'thorax',
     pieceIndex: 16,
@@ -127,46 +211,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 531,
     assetUrl: '/assets/skeleton/thorax-neckring-ab6f44a4d3.png',
   },
-  {
-    key: 'lumbar-upperspine',
-    nodeId: 'lumbar',
-    pieceIndex: 0,
-    name: 'Upperspine',
-    side: 'center',
-    pivot: [1257, 3382],
-    x: 1167,
-    y: 2063,
-    w: 181,
-    h: 1319,
-    assetUrl: '/assets/skeleton/thorax-upperspine-25a71c507d.png',
-  },
-  {
-    key: 'ribL-ribcage',
-    nodeId: 'ribL',
-    pieceIndex: 32,
-    name: 'Ribcage',
-    side: 'left',
-    pivot: [1257.5, 2099.5],
-    x: 1089,
-    y: 809,
-    w: 719,
-    h: 1505,
-    assetUrl: '/assets/skeleton/ribl-ribcage-56cf927e93.png',
-  },
-  {
-    key: 'ribR-ribcage',
-    nodeId: 'ribR',
-    pieceIndex: 23,
-    name: 'Ribcage',
-    side: 'right',
-    pivot: [1257.5, 2099.5],
-    x: 696,
-    y: 809,
-    w: 719,
-    h: 1505,
-    assetUrl: '/assets/skeleton/ribr-ribcage-388f092848.png',
-  },
-  {
+  braceL_tendon: {
+    id: 'braceL_tendon',
     key: 'braceL-shouldertendon',
     nodeId: 'braceL',
     pieceIndex: 26,
@@ -179,7 +225,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 393,
     assetUrl: '/assets/skeleton/bracel-shouldertendon-104a12195e.png',
   },
-  {
+  braceL_backshoulder: {
+    id: 'braceL_backshoulder',
     key: 'braceL-backshoulder',
     nodeId: 'braceL',
     pieceIndex: 34,
@@ -192,7 +239,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 953,
     assetUrl: '/assets/skeleton/bracel-backshoulder-78350dc87b.png',
   },
-  {
+  braceR_tendon: {
+    id: 'braceR_tendon',
     key: 'braceR-shouldertendon',
     nodeId: 'braceR',
     pieceIndex: 17,
@@ -200,12 +248,13 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     side: 'right',
     pivot: [1258, 862.5],
     x: 615,
-    y: 762,
+    y: 818,
     w: 714,
     h: 393,
     assetUrl: '/assets/skeleton/bracer-shouldertendon-838f460e6b.png',
   },
-  {
+  braceR_backshoulder: {
+    id: 'braceR_backshoulder',
     key: 'braceR-backshoulder',
     nodeId: 'braceR',
     pieceIndex: 25,
@@ -218,7 +267,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 953,
     assetUrl: '/assets/skeleton/bracer-backshoulder-c27559f677.png',
   },
-  {
+  acromionL: {
+    id: 'acromionL',
     key: 'acromionL-shoulderbone',
     nodeId: 'acromionL',
     pieceIndex: 27,
@@ -231,7 +281,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 407,
     assetUrl: '/assets/skeleton/acromionl-shoulderbone-c40ff47714.png',
   },
-  {
+  acromionR: {
+    id: 'acromionR',
     key: 'acromionR-shoulderbone',
     nodeId: 'acromionR',
     pieceIndex: 18,
@@ -244,33 +295,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 407,
     assetUrl: '/assets/skeleton/acromionr-shoulderbone-6b9c94d9d1.png',
   },
-  {
-    key: 'swivelL-shoulderswivel',
-    nodeId: 'swivelL',
-    pieceIndex: 33,
-    name: 'Shoulderswivel',
-    side: 'left',
-    pivot: [1249, 2100],
-    x: 1205,
-    y: 1163,
-    w: 680,
-    h: 964,
-    assetUrl: '/assets/skeleton/swivell-shoulderswivel-efc876e77a.png',
-  },
-  {
-    key: 'swivelR-shoulderswivel',
-    nodeId: 'swivelR',
-    pieceIndex: 24,
-    name: 'Shoulderswivel',
-    side: 'right',
-    pivot: [1254, 2156],
-    x: 619,
-    y: 1219,
-    w: 680,
-    h: 964,
-    assetUrl: '/assets/skeleton/swivelr-shoulderswivel-f42bb30c64.png',
-  },
-  {
+  humerusL: {
+    id: 'humerusL',
     key: 'humerusL-humerus',
     nodeId: 'humerusL',
     pieceIndex: 28,
@@ -283,7 +309,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1353,
     assetUrl: '/assets/skeleton/humerusl-humerus-d066e01cbb.png',
   },
-  {
+  humerusR: {
+    id: 'humerusR',
     key: 'humerusR-humerus',
     nodeId: 'humerusR',
     pieceIndex: 19,
@@ -296,7 +323,50 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1353,
     assetUrl: '/assets/skeleton/humerusr-humerus-e9186a92ca.png',
   },
-  {
+  swivelL: {
+    id: 'swivelL',
+    key: 'swivelL-shoulderswivel',
+    nodeId: 'swivelL',
+    pieceIndex: 33,
+    name: 'Shoulderswivel',
+    side: 'left',
+    pivot: [1249, 2100],
+    x: 1205,
+    y: 1163,
+    w: 680,
+    h: 964,
+    assetUrl: '/assets/skeleton/swivell-shoulderswivel-efc876e77a.png',
+  },
+  swivelR: {
+    id: 'swivelR',
+    key: 'swivelR-shoulderswivel',
+    nodeId: 'swivelR',
+    pieceIndex: 24,
+    name: 'Shoulderswivel',
+    side: 'right',
+    pivot: [1254, 2156],
+    x: 619,
+    y: 1219,
+    w: 680,
+    h: 964,
+    assetUrl: '/assets/skeleton/swivelr-shoulderswivel-f42bb30c64.png',
+  },
+  lumbar: {
+    id: 'lumbar',
+    key: 'lumbar-upperspine',
+    nodeId: 'lumbar',
+    pieceIndex: 0,
+    name: 'Upperspine',
+    side: 'center',
+    pivot: [1257, 3382],
+    x: 1167,
+    y: 2063,
+    w: 181,
+    h: 1319,
+    assetUrl: '/assets/skeleton/thorax-upperspine-25a71c507d.png',
+  },
+  forearmL_ulna: {
+    id: 'forearmL_ulna',
     key: 'forearmL-ulna',
     nodeId: 'forearmL',
     pieceIndex: 29,
@@ -309,7 +379,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1300,
     assetUrl: '/assets/skeleton/forearml-ulna-649c8d5b3d.png',
   },
-  {
+  forearmL_radius: {
+    id: 'forearmL_radius',
     key: 'forearmL-radius',
     nodeId: 'forearmL',
     pieceIndex: 31,
@@ -322,7 +393,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1354,
     assetUrl: '/assets/skeleton/forearml-radius-17b8a48800.png',
   },
-  {
+  forearmR_ulna: {
+    id: 'forearmR_ulna',
     key: 'forearmR-ulna',
     nodeId: 'forearmR',
     pieceIndex: 20,
@@ -335,7 +407,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1300,
     assetUrl: '/assets/skeleton/forearmr-ulna-d2b351633f.png',
   },
-  {
+  forearmR_radius: {
+    id: 'forearmR_radius',
     key: 'forearmR-radius',
     nodeId: 'forearmR',
     pieceIndex: 22,
@@ -348,59 +421,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1354,
     assetUrl: '/assets/skeleton/forearmr-radius-9d5138073a.png',
   },
-  {
-    key: 'handL-handkit',
-    nodeId: 'handL',
-    pieceIndex: 30,
-    name: 'Handkit',
-    side: 'left',
-    pivot: [2009.5, 3555],
-    x: 1852,
-    y: 3502,
-    w: 247,
-    h: 878,
-    assetUrl: '/assets/skeleton/handl-handkit-51a6a3321e.png',
-  },
-  {
-    key: 'handR-handkit',
-    nodeId: 'handR',
-    pieceIndex: 21,
-    name: 'Handkit',
-    side: 'right',
-    pivot: [493.5, 3611],
-    x: 405,
-    y: 3558,
-    w: 247,
-    h: 878,
-    assetUrl: '/assets/skeleton/handr-handkit-f00763776f.png',
-  },
-  {
-    key: 'hipR-pelvis',
-    nodeId: 'hipR',
-    pieceIndex: 5,
-    name: 'PelvisRight',
-    side: 'right',
-    pivot: [1257, 3382],
-    x: 650,
-    y: 2952,
-    w: 647,
-    h: 828,
-    assetUrl: '/assets/skeleton/hipr-inserted-image-7a81937bc6.png',
-  },
-  {
-    key: 'hipL-pelvis',
-    nodeId: 'hipL',
-    pieceIndex: 10,
-    name: 'PelvisLeft',
-    side: 'left',
-    pivot: [1257, 3382],
-    x: 1195,
-    y: 2952,
-    w: 647,
-    h: 828,
-    assetUrl: '/assets/skeleton/hipl-inserted-image-bf9dcab03b.png',
-  },
-  {
+  femurR: {
+    id: 'femurR',
     key: 'femurR-femur',
     nodeId: 'femurR',
     pieceIndex: 4,
@@ -413,7 +435,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 2125,
     assetUrl: '/assets/skeleton/femurr-femur-0debfdf036.png',
   },
-  {
+  femurL: {
+    id: 'femurL',
     key: 'femurL-femur',
     nodeId: 'femurL',
     pieceIndex: 9,
@@ -426,7 +449,36 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 2125,
     assetUrl: '/assets/skeleton/femurl-femur-91e3226efd.png',
   },
-  {
+  handL: {
+    id: 'handL',
+    key: 'handL-handkit',
+    nodeId: 'handL',
+    pieceIndex: 30,
+    name: 'Handkit',
+    side: 'left',
+    pivot: [2009.5, 3555],
+    x: 1852,
+    y: 3502,
+    w: 247,
+    h: 878,
+    assetUrl: '/assets/skeleton/handl-handkit-51a6a3321e.png',
+  },
+  handR: {
+    id: 'handR',
+    key: 'handR-handkit',
+    nodeId: 'handR',
+    pieceIndex: 21,
+    name: 'Handkit',
+    side: 'right',
+    pivot: [493.5, 3611],
+    x: 405,
+    y: 3558,
+    w: 247,
+    h: 878,
+    assetUrl: '/assets/skeleton/handr-handkit-f00763776f.png',
+  },
+  shinR_tibia: {
+    id: 'shinR_tibia',
     key: 'shinR-tibia',
     nodeId: 'shinR',
     pieceIndex: 2,
@@ -439,7 +491,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1579,
     assetUrl: '/assets/skeleton/shinr-tibia-7adfb55779.png',
   },
-  {
+  shinR_fibula: {
+    id: 'shinR_fibula',
     key: 'shinR-fibula',
     nodeId: 'shinR',
     pieceIndex: 3,
@@ -452,7 +505,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1516,
     assetUrl: '/assets/skeleton/shinr-fibula-f419f116db.png',
   },
-  {
+  shinL_tibia: {
+    id: 'shinL_tibia',
     key: 'shinL-tibia',
     nodeId: 'shinL',
     pieceIndex: 7,
@@ -465,7 +519,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1579,
     assetUrl: '/assets/skeleton/shinl-tibia-73515e0eb4.png',
   },
-  {
+  shinL_fibula: {
+    id: 'shinL_fibula',
     key: 'shinL-fibula',
     nodeId: 'shinL',
     pieceIndex: 8,
@@ -478,7 +533,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 1516,
     assetUrl: '/assets/skeleton/shinl-fibula-1044edb4ee.png',
   },
-  {
+  footR: {
+    id: 'footR',
     key: 'footR-foot',
     nodeId: 'footR',
     pieceIndex: 1,
@@ -491,7 +547,8 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 681,
     assetUrl: '/assets/skeleton/footr-inserted-image-23eb1a4367.png',
   },
-  {
+  footL: {
+    id: 'footL',
     key: 'footL-foot',
     nodeId: 'footL',
     pieceIndex: 6,
@@ -504,4 +561,96 @@ export const PUPPYT_SKELETON_PIECES: readonly SkeletonPieceAsset[] = [
     h: 681,
     assetUrl: '/assets/skeleton/footl-inserted-image-38aa5ffabb.png',
   },
+  hipR: {
+    id: 'hipR',
+    key: 'hipR-pelvis',
+    nodeId: 'hipR',
+    pieceIndex: 5,
+    name: 'PelvisRight',
+    side: 'right',
+    pivot: [1257, 3382],
+    x: 650,
+    y: 2952,
+    w: 647,
+    h: 828,
+    assetUrl: '/assets/skeleton/hipr-inserted-image-7a81937bc6.png',
+  },
+  hipL: {
+    id: 'hipL',
+    key: 'hipL-pelvis',
+    nodeId: 'hipL',
+    pieceIndex: 10,
+    name: 'PelvisLeft',
+    side: 'left',
+    pivot: [1257, 3382],
+    x: 1195,
+    y: 2952,
+    w: 647,
+    h: 828,
+    assetUrl: '/assets/skeleton/hipl-inserted-image-bf9dcab03b.png',
+  },
+  ribR: {
+    id: 'ribR',
+    key: 'ribR-ribcage',
+    nodeId: 'ribR',
+    pieceIndex: 23,
+    name: 'Ribcage',
+    side: 'right',
+    pivot: [1257.5, 2155.5],
+    x: 696,
+    y: 865,
+    w: 719,
+    h: 1505,
+    assetUrl: '/assets/skeleton/ribr-ribcage-388f092848.png',
+  },
+  ribL: {
+    id: 'ribL',
+    key: 'ribL-ribcage',
+    nodeId: 'ribL',
+    pieceIndex: 32,
+    name: 'Ribcage',
+    side: 'left',
+    pivot: [1257.5, 2099.5],
+    x: 1089,
+    y: 809,
+    w: 719,
+    h: 1505,
+    assetUrl: '/assets/skeleton/ribl-ribcage-56cf927e93.png',
+  },
+};
+
+const PIECES_ARRAY: readonly PuppytPieceAsset[] = Object.values(PUPPYT_SKELETON_PIECES_RECORD);
+
+export type PuppytPiecesCollection = readonly PuppytPieceAsset[] &
+  Record<string, PuppytPieceAsset>;
+
+/**
+ * Dual-compatible collection: works both as an array (for .map, .find, length)
+ * and as a Record/Dictionary (e.g. PUPPYT_SKELETON_PIECES.head_front, PUPPYT_SKELETON_PIECES.ribR).
+ */
+export const HEAD_TURN_ASSETS = [
+  '/assets/skeleton/head-front-4716271393.png',
+  '/assets/skeleton/head-side-r.png',
+  '/assets/skeleton/head-back.png',
+  '/assets/skeleton/head-side-l.png',
 ] as const;
+
+/**
+ * Uniformly scaled & peak-aligned head placement boxes in Puppyt rig coordinates:
+ * - Front (minY=1, maxY=267 / 269): peak at y=-256.67, chin bottom at y=632.67
+ * - Side R/L (minY=37, maxY=268 / 269): scaled uniformly by 267/232 (1.15086x) so cranium peak matches -256.67
+ * - Back (minY=0, maxY=268 / 269): scaled uniformly by 267/269 (0.99257x) so cranium peak matches -256.67
+ */
+export const HEAD_TURN_BOXES: readonly { x: number; y: number; w: number; h: number }[] = [
+  { x: 958, y: -260, w: 601, h: 896 },
+  { x: 912.67, y: -398.5, w: 691.67, h: 1031.17 },
+  { x: 960.23, y: -256.67, w: 596.53, h: 889.34 },
+  { x: 912.67, y: -398.5, w: 691.67, h: 1031.17 },
+];
+
+export const HEAD_TURN_LABELS = ['Front', 'Side R', 'Back', 'Side L'] as const;
+
+export const PUPPYT_SKELETON_PIECES: PuppytPiecesCollection = Object.assign(
+  [...PIECES_ARRAY],
+  PUPPYT_SKELETON_PIECES_RECORD
+) as unknown as PuppytPiecesCollection;

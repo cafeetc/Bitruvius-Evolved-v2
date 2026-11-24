@@ -14,12 +14,63 @@ export type StudioExportFormat =
   | 'lottie_json';
 
 /**
- * Canonical 18-joint kinematic skeleton:
- * - 6 axial joints: waist (Bottom of Spine), navel (Keystone), torso, collar, neck, head (Cranium/Crown)
- * - 6 upper limb joints: r/l_shoulder, r/l_elbow, r/l_wrist
- * - 6 lower limb joints: r/l_hip, r/l_knee, r/l_ankle
+ * Canonical 43-joint Bitruvian.Human.Puppyt kinematic topology:
+ * - Axial & Head (7): pelvis (root), lumbar, thorax, neck, head, lip, chinTip
+ * - Bilateral Ribcage (2): ribR, ribL
+ * - Closed-Chain Shoulder Girdle & Back Wings (10): swivelR/L, swivelTipR/L, acromionR/L, braceR/L, wingR/L
+ * - Bilateral Arms & Hand Digits (14): humerusR/L, forearmR/L, handR/L, thumbR/L, thumbTipR/L, fingerR/L, fingerTipR/L
+ * - Bilateral Legs & Feet (10): hipR/L, femurR/L, shinR/L, footR/L, toeR/L
  */
 export type JointId =
+  | 'pelvis'
+  | 'lumbar'
+  | 'thorax'
+  | 'ribR'
+  | 'ribL'
+  | 'neck'
+  | 'head'
+  | 'lip'
+  | 'chinTip'
+  | 'swivelR'
+  | 'swivelTipR'
+  | 'acromionR'
+  | 'braceR'
+  | 'wingR'
+  | 'humerusR'
+  | 'forearmR'
+  | 'handR'
+  | 'thumbR'
+  | 'thumbTipR'
+  | 'fingerR'
+  | 'fingerTipR'
+  | 'swivelL'
+  | 'swivelTipL'
+  | 'acromionL'
+  | 'braceL'
+  | 'wingL'
+  | 'humerusL'
+  | 'forearmL'
+  | 'handL'
+  | 'thumbL'
+  | 'thumbTipL'
+  | 'fingerL'
+  | 'fingerTipL'
+  | 'hipR'
+  | 'femurR'
+  | 'shinR'
+  | 'footR'
+  | 'toeR'
+  | 'hipL'
+  | 'femurL'
+  | 'shinL'
+  | 'footL'
+  | 'toeL';
+
+/**
+ * Legacy 18-joint Evolved IDs preserved strictly for the hidden CHILD_PROPORTION_SPECS archive
+ * pending Phase 3 asset-child-proportions calibration.
+ */
+export type LegacyJointId =
   | 'waist'
   | 'navel'
   | 'torso'
@@ -39,39 +90,32 @@ export type JointId =
   | 'l_knee'
   | 'l_ankle';
 
-/**
- * 11 anatomical silhouette regions ordered by base Z-Index stacking:
- * Waist -> Thighs -> Calves -> Feet -> Torso -> Collar -> Upper Arms -> Forearms -> Hands -> Neck -> Head
- */
+export type PuppytJointRole =
+  | 'root'
+  | 'spine'
+  | 'ribcage'
+  | 'head_facial'
+  | 'shoulder_girdle'
+  | 'accessory_rig'
+  | 'accessory_wing'
+  | 'limb_arm'
+  | 'hand_digit'
+  | 'limb_leg'
+  | 'foot_digit';
+
 export type BodyPartCategory =
-  | 'waist'
+  | 'pelvis'
   | 'thighs'
   | 'calves'
   | 'feet'
-  | 'torso'
-  | 'collar'
+  | 'spine'
+  | 'ribs'
+  | 'girdle'
+  | 'wings'
   | 'upper_arms'
   | 'forearms'
   | 'hands'
-  | 'neck'
-  | 'head';
-
-export type BonePlateId =
-  | 'waist'
-  | 'r_thigh'
-  | 'l_thigh'
-  | 'r_calf'
-  | 'l_calf'
-  | 'r_foot'
-  | 'l_foot'
-  | 'torso'
-  | 'collar'
-  | 'r_upper_arm'
-  | 'l_upper_arm'
-  | 'r_forearm'
-  | 'l_forearm'
-  | 'r_hand'
-  | 'l_hand'
+  | 'digits'
   | 'neck'
   | 'head';
 
@@ -92,7 +136,19 @@ export type PhysicsModeId =
   | 'rigid'
   | 'mode_e';
 
-export type SilhouetteDisplayMode = 'wireframe' | 'pure_shadow';
+export type SilhouetteDisplayMode =
+  | 'wireframe'
+  | 'pure_shadow'
+  | 'purple_skeleton'
+  | 'hybrid_overlay';
+
+export type InspectionViewMode =
+  | 'silhouette'
+  | 'vector_only'
+  | 'hybrid_overlay'
+  | 'armature_only';
+
+export type ProceduralMoodOffsets = Partial<Record<JointId, number>>;
 
 export interface PivotOffset {
   dx: number;
@@ -111,28 +167,58 @@ export interface CharacterPoseProportions {
   perJoint?: Record<JointId, BoneScale>;
 }
 
+export interface AimConstraintSpec {
+  to: JointId;
+  minRatio: number;
+  maxRatio: number;
+}
+
 export interface JointSpec {
   id: JointId;
   label: string;
   shortCode: string;
   subtitle: string;
   parentId: JointId | null;
+  role: PuppytJointRole;
+  side: 'center' | 'right' | 'left';
+  restPivot: readonly [number, number];
+  restTip?: readonly [number, number];
   lengthPx: number;
-  endExtensionPx?: number; // Terminal limb bone extension (head->crown, wrist->hand tip, ankle->foot sole)
-  socketOffset?: PivotOffset; // Offset from parent joint center in parent's local frame (femoral cup, shoulder glenohumeral)
-  bodyPartCategory?: BodyPartCategory;
+  endExtensionPx?: number;
+  bodyPartCategory: BodyPartCategory;
   isSpine?: boolean;
+  isTip?: boolean;
+  locked?: boolean;
+  isGhost?: boolean;
+  aimTarget?: AimConstraintSpec;
+  limits?: readonly [number, number];
   defaultLocalAngle: number;
   defaultMode: JointMode;
   ikChain?: [JointId, JointId, JointId] | 'spine';
   bendDirection?: 1 | -1;
 }
 
+export interface LegacyJointSpec {
+  id: LegacyJointId;
+  label: string;
+  shortCode: string;
+  subtitle: string;
+  parentId: LegacyJointId | null;
+  lengthPx: number;
+  endExtensionPx?: number;
+  socketOffset?: PivotOffset;
+  isSpine?: boolean;
+  defaultLocalAngle: number;
+  defaultMode: JointMode;
+  ikChain?: [LegacyJointId, LegacyJointId, LegacyJointId] | 'spine';
+  bendDirection?: 1 | -1;
+}
+
 export interface JointRuntimeState {
-  localAngle: number; // degrees relative to parent worldAngle (continuous or clamped [-180, 180])
+  localAngle: number; // degrees relative to Puppyt anatomical rest (continuous or clamped [-180, 180])
   mode: JointMode;
   physicsMode: PhysicsModeId;
-  modeERatio: number; // user-guided blend multiplier for Mode E (defaults to 1.00)
+  modeERatio: number; // user-guided blend multiplier for Mode E (0.50 - 1.50, defaults to 1.00)
   scaleLength: number; // 0.50 - 2.00
   scaleWidth: number;  // 0.50 - 2.00
 }
@@ -147,10 +233,25 @@ export interface ComputedJoint {
   parentX: number | null;
   parentY: number | null;
   localAngle: number;
-  worldAngle: number;
+  worldAngle: number; // World orientation of bone vector (deg)
+  restWorldDeg: number; // Puppyt rest vector direction (deg)
+  cumulativeDeltaDeg: number; // Cumulative FK rotational offset from rest
   effectiveLengthPx: number;
   effectiveWidthScale: number;
   mode: JointMode;
+  boneMatrix: readonly [number, number, number, number, number, number];
+  isStrained?: boolean;
+  tensionRatio?: number;
+}
+
+export interface RigHierarchyAuditReport {
+  valid: boolean;
+  totalJoints: number;
+  orphanNodes: string[];
+  cycles: string[];
+  topologicalViolations: string[];
+  aimOrderViolations: string[];
+  parentMismatches: Array<{ id: string; expected: string | null; actual: string | null }>;
 }
 
 export interface ArmatureState {
@@ -159,38 +260,24 @@ export interface ArmatureState {
   rootRotation: number;
   continuousSpin: boolean;
   internalKeystone: KeystoneOrigin; // 'navel' default vs 'crown' toggle
-  environmentalAnchor: EnvironmentalAnchorId; // defaults to 'bottom_of_spine'
+  environmentalAnchor: EnvironmentalAnchorId; // defaults to 'navel'
   isAnchorPinned: boolean; // true locks active environmental anchor to canvas origin (0,0); false allows free X/Y
+  headTurn?: 0 | 1 | 2 | 3; // 0: Front, 1: Side R, 2: Back, 3: Side L
+  proceduralMoodOffsets?: ProceduralMoodOffsets;
   joints: Record<JointId, JointRuntimeState>;
 }
 
-export interface BoneRenderDescriptor {
-  id: BonePlateId;
-  jointId: JointId;
-  category: BodyPartCategory;
-  side: 'center' | 'left' | 'right';
-  label: string;
-  originX: number;
-  originY: number;
-  worldAngle: number;
-  lengthPx: number;
-  scaleLength: number;
-  scaleWidth: number;
-  pivotOffset: PivotOffset; // (dx, dy) local asymmetrical housing offset
-  zIndex: number;
-}
-
 /**
- * Phase 3 Canonical Pose Snapshot Specification.
- * Encapsulates normalized 18-joint FK state, per-joint modes, physics Mode E values,
- * aggregate & per-joint bone proportions, keystone/environmental anchor state, and spin mode.
+ * Canonical Pose Snapshot Specification.
+ * Encapsulates normalized 43-joint FK state, per-joint modes, 5 physics modes + Mode E ratios,
+ * aggregate & per-joint bone proportions, keystone/environmental anchor state, and procedural mood offsets.
  */
 export interface CharacterPoseSnapshot {
   snapshotId: string;
   label: string;
   timestamp: number;
   viewMode: SilhouetteDisplayMode;
-  joints: Record<JointId, number>; // 18 normalized angles in [-180.00, +180.00]
+  joints: Record<JointId, number>; // 43 normalized angles in [-180.00, +180.00]
   jointModes: Record<JointId, JointMode>;
   physicsModes: Record<JointId, PhysicsModeId>;
   modeEValues: Record<JointId, number>;
@@ -201,7 +288,33 @@ export interface CharacterPoseSnapshot {
   continuousSpin: boolean;
   rootX: number;
   rootY: number;
+  proceduralMoodOffsets?: ProceduralMoodOffsets;
   armature?: ArmatureState;
+}
+
+export interface SeamAuditCheck {
+  jointId: JointId;
+  parentId: JointId;
+  flexionDeg: number;
+  seamGapPixels: number;
+  socketDistortionPercent: number;
+  anatomicalNote: string;
+  passed: boolean;
+}
+
+export interface SeamAuditReport {
+  passed: boolean;
+  maxSeamGapPixels: number;
+  maxSocketDistortionPercent: number;
+  checks: SeamAuditCheck[];
+}
+
+export interface SystemInvariant {
+  id: string;
+  domain: string;
+  assertion: string;
+  contract: string;
+  unitTested: boolean;
 }
 
 export interface PoseHistoryState {

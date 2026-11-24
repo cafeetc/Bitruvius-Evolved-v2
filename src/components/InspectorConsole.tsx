@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArmatureState,
   CharacterPoseSnapshot,
@@ -15,6 +15,7 @@ import {
   PosePresetId,
   SUBPYXL_PX,
   SnapMode,
+  StudioExportFormat,
 } from '../types';
 import {
   ENVIRONMENTAL_ANCHORS,
@@ -22,6 +23,8 @@ import {
   computeModelWorkingSquare,
   formatSignedDeg,
 } from '../utils/kinematics';
+import { STUDIO_EXPORT_SUITE } from '../utils/export';
+import { audit90DegreeSeams } from '../utils/seamAudit';
 import { FKControls } from './FKControls';
 
 interface InspectorConsoleProps {
@@ -57,6 +60,9 @@ interface InspectorConsoleProps {
   showAllBadges: boolean;
   onToggleAllBadges: () => void;
   onSelectPreset: (preset: PosePresetId) => void;
+  onRunScenePlannerCommand: (cmd: string) => { ok: boolean; message: string };
+  onRunExport: (format: StudioExportFormat) => Promise<void> | void;
+  exportFeedback: string | null;
 }
 
 type ConsoleTabId = 'pose' | 'physics' | 'rig' | 'stage';
@@ -97,9 +103,19 @@ export const InspectorConsole: React.FC<InspectorConsoleProps> = ({
   showAllBadges,
   onToggleAllBadges,
   onSelectPreset,
+  onRunScenePlannerCommand,
+  onRunExport,
+  exportFeedback,
 }) => {
   const [activeTab, setActiveTab] = useState<ConsoleTabId>('pose');
   const [sampleHover, setSampleHover] = useState(false);
+  const [plannerInput, setPlannerInput] = useState('');
+  const [plannerFeedback, setPlannerFeedback] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+
+  const seamAudit = useMemo(() => audit90DegreeSeams(armature), [armature]);
 
   useEffect(() => {
     if (!showFigure && activeTab !== 'stage') {
@@ -107,9 +123,19 @@ export const InspectorConsole: React.FC<InspectorConsoleProps> = ({
     }
   }, [activeTab, showFigure]);
 
+  const handleSubmitPlanner = (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = onRunScenePlannerCommand(plannerInput);
+    setPlannerFeedback(res);
+    if (res.ok) setPlannerInput('');
+  };
+
   return (
-    /* Strict 2/3 Stage Canvas + 1/3 Console UI screen split layout */
-    <aside className="w-full h-[33.33vh] lg:h-full lg:w-1/3 lg:max-w-[33.3333%] console-panel border-b-0 border-r-0 lg:border-t-0 flex flex-col z-10 shrink-0 overflow-hidden">
+    /* Strict 2/3 Stage Canvas + 1/3 Console UI screen split layout (INV-STAGE-01) */
+    <aside
+      data-console-container="true"
+      className="w-1/3 max-w-[33.3333%] h-full console-panel border-b-0 border-r-0 border-t-0 flex flex-col z-10 shrink-0 overflow-hidden"
+    >
       <nav
         aria-label="Console Sections"
         className="grid grid-cols-4 border-b border-[#EBE0F5]/14 bg-[#0D0012]/90 shrink-0"
@@ -221,6 +247,52 @@ export const InspectorConsole: React.FC<InspectorConsoleProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Scene Planner First-Slice Grammar */}
+            <form
+              onSubmit={handleSubmitPlanner}
+              className="space-y-1.5 bg-[#0D0012]/70 border border-[#EBE0F5]/12 rounded-[2px] p-2.5"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="scene-planner-input"
+                  className="font-vera font-bold text-[10.5px] text-[#FAF6FF]"
+                >
+                  Scene Planner
+                </label>
+                <span className="font-typewriter text-[8.5px] text-[#9E8EB3]">
+                  select / name / reset
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  id="scene-planner-input"
+                  type="text"
+                  value={plannerInput}
+                  onChange={(e) => setPlannerInput(e.target.value)}
+                  placeholder="select pose Vitruvian · name pose Hero · reset placement"
+                  className="flex-1 min-w-0 px-2 py-1 text-[10px] font-typewriter text-[#FAF6FF] placeholder:text-[#7E6C92] bg-[#16001E] border border-[#EBE0F5]/20 rounded-[2px] focus:outline-none focus:border-[#D8B4FE]"
+                />
+                <button
+                  type="submit"
+                  className="px-2 py-1 text-[10px] font-vera font-bold bg-[#361547] hover:bg-[#491E60] border border-[#D8B4FE]/40 rounded-[2px] text-[#FAF6FF] cursor-pointer shrink-0"
+                >
+                  Run
+                </button>
+              </div>
+              {plannerFeedback && (
+                <div
+                  role="status"
+                  className={`font-vera text-[9.5px] px-1.5 py-0.5 rounded-[2px] border ${
+                    plannerFeedback.ok
+                      ? 'bg-[#052E16]/50 border-[#4ADE80]/30 text-[#86EFAC]'
+                      : 'bg-[#450A0A]/50 border-[#F87171]/35 text-[#FCA5A5]'
+                  }`}
+                >
+                  {plannerFeedback.message}
+                </div>
+              )}
+            </form>
           </div>
         )}
 
@@ -243,7 +315,7 @@ export const InspectorConsole: React.FC<InspectorConsoleProps> = ({
           />
         )}
 
-        {/* TAB 3: RIG (Keystone Toggle Navel vs Crown + Environmental Anchor + 18-Joint Ledger) */}
+        {/* TAB 3: RIG (Keystone Toggle Navel vs Crown + Environmental Anchor + 43-Joint Ledger) */}
         {activeTab === 'rig' && showFigure && (
           <div className="space-y-2.5">
             <div className="space-y-2 bg-[#0D0012]/70 border border-[#EBE0F5]/12 rounded-[2px] p-2.5">
@@ -324,15 +396,28 @@ export const InspectorConsole: React.FC<InspectorConsoleProps> = ({
                       : 'bg-[#16001E]/75 border-[#EBE0F5]/12 text-[#9E8EB3]'
                   }`}
                 >
-                  {showAllBadges ? 'Rails: All 18' : 'Rails: Focus'}
+                  {showAllBadges ? 'Rails: All 43' : 'Rails: Focus'}
                 </button>
+              </div>
+
+              {/* 90° Seam Verification Engine Readout */}
+              <div
+                data-seam-audit={seamAudit.passed ? 'passed' : 'failed'}
+                className="flex items-center justify-between px-2 py-1 rounded-[2px] border bg-[#16001E]/85 border-[#4ADE80]/28 text-[9.5px]"
+              >
+                <span className="font-vera font-bold text-[#86EFAC]">
+                  90° Seam Audit ({seamAudit.checks.length} sockets)
+                </span>
+                <span className="font-typewriter text-[#E9D5FF]">
+                  {seamAudit.maxSeamGapPixels}px gap · {seamAudit.maxSocketDistortionPercent}% dist
+                </span>
               </div>
             </div>
 
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <span className="font-vera font-bold text-[10.5px] text-[#D9CDE6]">
-                  18-Joint Ledger
+                  43-Joint Ledger
                 </span>
                 <span className="font-vera text-[9.5px] text-[#9E8EB3]">
                   Tap to select
@@ -526,6 +611,43 @@ export const InspectorConsole: React.FC<InspectorConsoleProps> = ({
                 <span className="font-typewriter text-[#C8B2E0]">
                   {(MEGAPYXL_PX / PYXL_PX).toFixed(2)} pyx · {(SUBPYXL_PX / PYXL_PX).toFixed(2)} sub
                 </span>
+              </div>
+            </div>
+
+            {/* 5-Format Studio Export Suite */}
+            <div
+              data-export-suite="true"
+              className="bg-[#0D0012]/70 border border-[#EBE0F5]/12 rounded-[2px] p-2.5 space-y-1.5"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-vera font-bold text-[10.5px] text-[#FAF6FF]">
+                  Studio Export Suite (5 Formats)
+                </span>
+                {exportFeedback && (
+                  <span className="font-typewriter text-[9px] text-[#86EFAC] truncate max-w-[140px]">
+                    {exportFeedback}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                {STUDIO_EXPORT_SUITE.map((item) => (
+                  <button
+                    key={item.format}
+                    type="button"
+                    title={item.description}
+                    onClick={() => void onRunExport(item.format)}
+                    className={`px-2 py-1 text-left rounded-[2px] border bg-[#16001E]/80 hover:bg-[#361547] border-[#EBE0F5]/16 text-[#E6DCF0] hover:text-[#FAF6FF] cursor-pointer transition-colors ${
+                      item.format === 'lottie_json' ? 'col-span-2 flex items-center justify-between' : ''
+                    }`}
+                  >
+                    <span className="font-vera font-bold text-[9.5px] block truncate">
+                      {item.label}
+                    </span>
+                    <span className="font-typewriter text-[8.5px] text-[#C8B2E0]">
+                      .{item.extension}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 

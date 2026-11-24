@@ -1,10 +1,20 @@
 import React, { useMemo, useState } from 'react';
-import { Check, CheckCircle2, CircleAlert, Compass, Copy, FileText, Sparkles } from 'lucide-react';
+import {
+  Check,
+  CheckCircle2,
+  CircleAlert,
+  Compass,
+  Copy,
+  FileText,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 import {
   ROADMAP_ENTRIES,
   ROADMAP_METADATA,
   RoadmapEntry,
   RoadmapStatus,
+  SYSTEM_INVARIANTS,
 } from '../data/roadmap';
 
 type RoadmapFilter = 'all' | RoadmapStatus;
@@ -86,6 +96,12 @@ function formatEntriesAsMarkdown(entries: readonly RoadmapEntry[]): string {
     }
     lines.push('');
   }
+
+  lines.push('## Indexed System Invariants');
+  for (const inv of SYSTEM_INVARIANTS) {
+    lines.push(`- **${inv.id}** (${inv.domain}): \`${inv.assertion}\` — ${inv.contract}`);
+  }
+  lines.push('');
 
   return lines.join('\n');
 }
@@ -218,7 +234,6 @@ export const RoadmapView: React.FC = () => {
             {(
               [
                 { id: 'all', label: `All (${counts.all})` },
-                { id: 'awaiting_rules', label: `Blueprint Intake (${counts.awaiting_rules})` },
                 { id: 'unresolved', label: `Unresolved (${counts.unresolved})` },
                 { id: 'vision', label: `Future Visions (${counts.vision})` },
                 { id: 'completed', label: `Completed (${counts.completed})` },
@@ -239,6 +254,55 @@ export const RoadmapView: React.FC = () => {
                 {tab.label}
               </button>
             ))}
+          </div>
+        </section>
+
+        {/* Master System Invariants Table */}
+        <section
+          data-invariants-table="true"
+          className="bg-[#180421] border border-[#EBE0F5]/14 rounded-[3px] p-4 space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EBE0F5]/12 pb-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-[#86EFAC]" />
+              <h2 className="font-typewriter font-bold text-sm text-[#FAF6FF] tracking-[0.03em]">
+                System Invariants & Automated Unit Assertions ({SYSTEM_INVARIANTS.length})
+              </h2>
+            </div>
+            <span className="px-2 py-0.5 text-[9.5px] font-typewriter font-bold bg-[#052E16]/70 text-[#86EFAC] border border-[#4ADE80]/30 rounded-[2px]">
+              ALL {SYSTEM_INVARIANTS.length} ASSERTED
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-[#EBE0F5]/12 text-[10px] font-vera uppercase tracking-[0.05em] text-[#9E8EB3]">
+                  <th className="py-1.5 pr-3">ID</th>
+                  <th className="py-1.5 pr-3">Domain</th>
+                  <th className="py-1.5 pr-3">Technical Assertion</th>
+                  <th className="py-1.5">Behavioral Contract</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#EBE0F5]/8 text-[11px]">
+                {SYSTEM_INVARIANTS.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-[#21072B]/55">
+                    <td className="py-2 pr-3 font-typewriter font-bold text-[#E9D5FF] whitespace-nowrap">
+                      {inv.id}
+                    </td>
+                    <td className="py-2 pr-3 font-vera font-bold text-[#FAF6FF] whitespace-nowrap">
+                      {inv.domain}
+                    </td>
+                    <td className="py-2 pr-3 font-typewriter text-[#86EFAC] text-[10px]">
+                      <code>{inv.assertion}</code>
+                    </td>
+                    <td className="py-2 font-vera text-[#C8B2E0] leading-snug">
+                      {inv.contract}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
 

@@ -4,11 +4,11 @@ import { ModelBounds, SideCalloutDescriptor, WorldExclusionRect } from '../utils
 
 export const DEFAULT_FPS = 12;
 export const INTERTITLE_BACKSPACE_FRAMES = 6;
-export const INTERTITLE_LETTER_PYXLS = 2;
+export const INTERTITLE_LETTER_PYXLS = 1;
 
-const TARGET_CAP_HEIGHT_PX = INTERTITLE_LETTER_PYXLS * PYXL_PX; // 200 world px = 2.00 pyx
+const TARGET_CAP_HEIGHT_PX = INTERTITLE_LETTER_PYXLS * PYXL_PX; // 100 world px = 1.00 pyx
 const LINE_LEADING_PX = PYXL_PX; // 1.00 pyx leading between lines
-const LINE_STEP_PX = TARGET_CAP_HEIGHT_PX + LINE_LEADING_PX; // 3.00 pyx baseline-to-baseline
+const LINE_STEP_PX = TARGET_CAP_HEIGHT_PX + LINE_LEADING_PX; // 2.00 pyx baseline-to-baseline
 
 // Fallback Computer Modern Typewriter Bold cap-height ratio (~0.611 of em)
 const DEFAULT_CAP_RATIO = 0.611;
@@ -32,8 +32,10 @@ interface GridIntertitleLayerProps {
   modelBounds?: ModelBounds | null;
   sideCallouts?: SideCalloutDescriptor[];
   extraExclusions?: WorldExclusionRect[];
+  viewportBottomY?: number;
   onTriggerDismiss: () => void;
   onDismissComplete: () => void;
+  inkFill?: string;
   fps?: number;
   backspaceFrames?: number;
 }
@@ -160,8 +162,10 @@ export const GridIntertitleLayer: React.FC<GridIntertitleLayerProps> = ({
   modelBounds,
   sideCallouts = [],
   extraExclusions = [],
+  viewportBottomY,
   onTriggerDismiss,
   onDismissComplete,
+  inkFill = '#16001E',
   fps = DEFAULT_FPS,
   backspaceFrames = INTERTITLE_BACKSPACE_FRAMES,
 }) => {
@@ -267,7 +271,14 @@ export const GridIntertitleLayer: React.FC<GridIntertitleLayerProps> = ({
   if (isBelowModel) {
     if (modelBounds) {
       // Snap strictly to the next integer pyxl row cleanly below the feet / lower silhouette
-      firstCapPyxlFromOrigin = Math.ceil((modelBounds.maxY - originBaseY) / PYXL_PX);
+      const minRow = Math.ceil((modelBounds.maxY - originBaseY) / PYXL_PX);
+      if (viewportBottomY !== undefined) {
+        const bottomRow = (viewportBottomY - originBaseY) / PYXL_PX;
+        const centered = Math.round(minRow + (bottomRow - minRow - stackPyxls) / 2);
+        firstCapPyxlFromOrigin = Math.max(minRow, centered);
+      } else {
+        firstCapPyxlFromOrigin = minRow;
+      }
     } else {
       firstCapPyxlFromOrigin = originMode === 'center' ? 5 : 14;
     }
@@ -341,7 +352,6 @@ export const GridIntertitleLayer: React.FC<GridIntertitleLayerProps> = ({
   const topCapY = firstBaselineY - TARGET_CAP_HEIGHT_PX;
   const bottomBaselineY = firstBaselineY + (lineCount - 1) * LINE_STEP_PX;
   const hitHeight = bottomBaselineY - topCapY;
-  const inkFill = '#16001E';
 
   return (
     <g
@@ -353,7 +363,7 @@ export const GridIntertitleLayer: React.FC<GridIntertitleLayerProps> = ({
       }}
       style={{
         cursor: 'pointer',
-        mixBlendMode: 'multiply',
+        mixBlendMode: inkFill === '#16001E' ? 'multiply' : 'normal',
       }}
     >
       {/* Invisible composing galley hit target covering entire typeset block */}

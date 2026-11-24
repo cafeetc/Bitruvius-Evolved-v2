@@ -1,55 +1,65 @@
-# Bitruvius Evolved — Architecture & Evolution Roadmap
+# Bitruvius Evolved — Architecture & Evolution Roadmap (`v0.5-alpha`)
 
-> **Status:** Up to date with current skeleton-puppet baseline. Ready to ingest and reconcile **Initial Blueprint Rules**.  
-> **Default Stage Mode:** `Pure Shadow` — 33-piece `Bitruvian.Human.Puppyt` skeleton rendered as a unified **dark purple-gray (`#261D2E`)** silhouette on launch.
-
----
-
-## I. Initial Blueprint Rules (Intake & Reconciliation)
-
-Awaiting user's initial blueprint ruleset to audit against the active rig, kinematics, stage geometry, and roadmap. Once provided, rules will be indexed here as binding architectural invariants and cross-checked against all unresolved items.
-
-**Current Active Invariants Observed in Codebase:**
-1. **Default Silhouette Launch**: App opens in `Pure Shadow` mode displaying the dark purple-gray (`#261D2E`) skeleton silhouette before any animation or pose overrides are applied (`App.tsx`, `Mannequin.tsx`, `Bone.tsx`).
-2. **Adult Puppyt Proportions (`0.14` Scale)**: `JOINT_SPECS` runs isotropic `PUPPYT_TO_EVOLVED_SCALE = 0.14` proportions matching `Bitruvian.Human.Puppyt` adult anatomy (~1:1 Vitruvian armspan-to-height ratio).
-3. **Preserved Hidden Child Proportions**: Original Evolved rig dimensions are preserved verbatim as `CHILD_PROPORTION_SPECS` in `src/utils/kinematics.ts` and remain hidden from the UI until refined.
-4. **Pure Canvas & Non-Intrusive Studio Shell**: Zero mock/telemetry clutter; Evolved UI, 4 pose presets (`T-Pose`, `Vitruvian`, `Contrapposto`, `Striding`), FK/IK/PIN modes, and Physics multipliers remain intact.
+> **Updated:** `2026-11-23`  
+> **Default Stage Mode:** `Pure Shadow` (`#261D2E` Light / `#EFEAF4` Dark) — 33-piece `Bitruvian.Human.Puppyt` skeleton rendered as a unified silhouette on launch at `18%` (`0.18`) stage zoom. Cycles `Pure Shadow → Bitruvian Purple (#9D79BC) → Hybrid Overlay → Wireframe` (+ `Overlay` toggle).
 
 ---
 
-## II. Completed & Integrated Baseline
+## I. Phase 0 — Master System Invariants & Decisions
 
-- [x] **Base Application Port (`Bitruvius-Evolved`)**: Full 18-joint kinematic engine, `PYXL`/`MPYX` endless archival drafting canvas, `TopConsoleBar`, `InspectorConsole`, Pose/Physics/Rig/Stage tabs, and keyboard micro-nudging (`±0.25°` / `±1.00°`).
-- [x] **33-Piece Purple Skeleton Extraction (`Bitruvian.Human.Puppyt`)**: All unique post-antiPhallic skeleton PNG assets extracted into `/public/assets/skeleton/` with exact per-piece rest pivots (`PUPPYT_SKELETON_PIECES` & `PUPPYT_LANDMARKS`).
-- [x] **Dark Purple-Gray Default Silhouette (`#261D2E`)**: Composite SVG `feFlood` + `feComposite` filter fuses all 33 skeleton pieces into a unified flat dark purple-gray silhouette in default `Pure Shadow` mode, revealing the full-color skeleton + emerald digital model in `Wireframe` mode.
-- [x] **Underlying Digital Kinematic Model**: Renders skull triangle (`templeR`, `templeL`, `chinTip`), costal rib guides, pelvic bar, closed-chain shoulder girdle (`Backshoulder < Shoulderswivel < Ribcage`), and neck-to-acromion tendon strain detection (`> 1.12` / `< 0.78`).
-- [x] **Adult Puppyt Calibration & Preserved Child Spec**: All limb/spine/pelvis/cranium lengths aligned isotropically at `0.14`, verified by `node:test` unit tests (`<= 0.5px` pelvis socket accuracy) and headless Chromium verification.
-- [x] **Live Roadmap Document & Top-Bar Navigation**: Added `ROADMAP.md`, typed roadmap model, and the `Roadmap` workspace tab directly beside `BITRUVIUS EVOLVED`.
+- [x] **Initial Blueprint Rules Intake & Master Invariants Audit** *(High Priority — Completed)*  
+  Master System Invariants & Rules Manifest ingested (`bp-intake`), reconciled with the 43-joint Option A Puppyt rig, and compiled into 9 automated `INV-*` assertions (`src/data/roadmap.ts`, `src/data/invariants.test.ts`).
+- [x] **Decide Rig Topology: 43-Joint Puppyt Rig vs. Extra Joints on 18-Joint Rig** *(High Priority — Option A Adopted)*  
+  **Decision Recorded (`dec-rig-topology`):** **Option A adopted** — canonical **43-joint `Bitruvian.Human.Puppyt` topology** (`pelvis` root, dual spine `lumbar` + `thorax`, independent `ribR`/`ribL`, `hipR`/`hipL`, closed-chain shoulder girdle `swivelR/L` + `swivelTipR/L` + `acromionR/L` + `braceR/L` + `wingR/L`, digits, and facial sub-chain). Original 18-joint specs preserved & hidden in `CHILD_PROPORTION_SPECS`.
+- [ ] **Define Which Puppyt Procedural Settings to Port** *(Medium Priority)*  
+  Name which global sliders (`Global Scale`, `Limb Width`, `Limb Length`) apply to static rig vs. motion-only (`dec-procedural-settings`).
+- [ ] **Define the Hip Control** *(Medium Priority)*  
+  Specify Puppyt hip swivel vs. tilt vs. lock before Phase 2 two-bone hip port (`dec-hip-setting`).
+- [ ] **Confirm Bitruvian Purple Hex** *(Low Priority)*  
+  Confirm `#9D79BC` (`SELECTED_PIECE_COLOR` in `src/components/Mannequin.tsx`).
+
+**Indexed System Invariants (`INV-*`):**
+
+| Invariant ID | System Domain | Technical Assertion | Expected Behavioral Contract |
+| :--- | :--- | :--- | :--- |
+| `INV-STAGE-01` | Stage Layout | `stageWidth === 0.666 * windowWidth` | Stage canvas occupies 66.6% width on left; console occupies 33.3% (`#16001E`) on right. |
+| `INV-STAGE-02` | Center Origin | `navelKeystone.center === (canvasWidth / 2, canvasHeight / 2)` | Origin `(0,0)` aligns to optical center of the 2/3 stage container. |
+| `INV-ROYAL-01` | UI Protection | `consoleBounds.intersects(mannequinBounds) === false` | Console panels never overlap or obscure mannequin artwork or joint dots. |
+| `INV-KIN-01` | Joint Range | `-180.00 <= jointAngle <= 180.00` | Joint angles clamp to `[-180.00°, +180.00°]` at `0.25°` step precision unless continuous spin is toggled ON. |
+| `INV-KIN-02` | Shortest Path | `abs(deltaTheta) <= 180.00` | Joint transitions evaluate modulo shortest angular distance (`((Δ+540)%360)-180`). |
+| `INV-SEAM-01` | Seam Separation | `seamGapPixels === 0 && socketDistortionPercent === 0` | Local `(dx, dy)` anatomical offsets keep limb artwork seated inside parent housings during 90° bends. |
+| `INV-PHYS-01` | Physics Multiplier | `outputDelta === inputDelta * physicsGearRatio` | `Twins (1.0×)`, `Elastic Rubber (1.5×)`, `Damp (0.5×)`, `Rigid (0.0×)`, and `Mode E (0.50×–1.50×)`. |
+| `INV-MEM-01` | Snapshot Recall | `transitionDurationMs === 500 && easing === 'ease-in-out'` | Clicking any saved Snapshot card triggers a `0.50s` shortest-path ease-in-out recall. |
+| `INV-EXPO-01` | Export Parity | `exportSuite.formats.length === 5 && allFormatsReady === true` | Export Suite generates Pose JSON, SVG Snapshot, Transparent PNG, Adaptive PNG, and Lottie JSON. |
 
 ---
 
-## III. Currently Unresolved Items
+## II. Phase 1 & Phase 2 — Completed Baseline
 
-1. **Initial Blueprint Rules Audit** *(Priority: High — Blocked on Intake)*  
-   Ingest user's initial blueprint rules, reconcile conflicts with existing Evolved/Puppyt mechanics, and lock canonical constraints.
-2. **Child Proportions Refinement (`CHILD_PROPORTION_SPECS`)** *(Priority: Medium — Hidden in Code)*  
-   Calibrate bone piece aspect ratios, skull-to-body ratio, and pelvis socket geometry for child proportions before exposing a hidden/unlockable proportion switcher in the Rig console.
-3. **Initial Intertitle Framing Below Taller Adult Stance** *(Priority: Low — Visual Polish)*  
-   Because `0.14` adult legs extend lower (`~629px` below waist), `"Welcome Bitruvius"` in `below-model` placement sits near the bottom border edge on initial launch; adjust `fitPaperToStage` or intertitle offset once blueprint rules confirm framing rules.
-4. **Pure-Shadow Silhouette Export Parity** *(Priority: Low — Verification)*  
-   Verify `svg_snapshot`, `transparent_png`, and `adaptive_png` export helpers preserve the `#261D2E` SVG filter tint across all browsers without falling back to full color.
+- [x] **2/3 Stage + 1/3 Emperor.Clothes Console Split, Navel Optical Centering & Analog Paper Surface** (`App.tsx`, `StageCanvas.tsx`)
+- [x] **33-Piece Purple Skeleton, Rigid Cardboard-Cutout Shoulder Girdle (Zero Stretch), & Peak-Aligned 4-View Head Turntable** (`skeletonRig.ts`, `skeletonAttachment.ts`, `kinematics.ts`)
+- [x] **Bitruvian T Pose Launch Procedural Mood Engine & Mode E (`0.50×–1.50×`) Steering Physics** (`kinematics.ts`, `FKControls.tsx`)
+- [x] **Bottom Snapshot Shelf (`Snapshot #1`), `0.50s` Ease-in-Out Shortest-Path Recall & Vector Sequence ZIP Importer** (`BottomSnapshotShelf.tsx`, `zipSequenceImporter.ts`)
+- [x] **4-Way Inspection View Modes (`Pure Shadow → Bitruvian Purple → Hybrid Overlay → Wireframe`), 90° Seam Audit, 5-Format Export Suite & Scene Planner Grammar** (`Mannequin.tsx`, `seamAudit.ts`, `export.ts`, `scenePlanner.ts`)
+- [x] **Refined Skeleton Model Intake (`ribR` Y=865 / pivot `[1257.5, 2155.5]`, `braceR_tendon` Y=818, iliac crests, dual Record/Array API)**
+- [x] **Rig Topology Decision Recorded (`dec-rig-topology`: Option A — 43-Joint Puppyt Topology) & Hierarchy Audit (`rig-invariants`)** (`auditRigHierarchy`, `sortJointsTopologically`, unit assertions)
+
+---
+
+## III. Unresolved Verification, Rigging, Assets & Workspace Items
+
+- [ ] *(Phase 1)* **Verify Filter Tint in SVG/PNG Exports** (`ver-export-parity`)
+- [ ] *(Phase 1)* **Head Turn Sprite Review at Working Zoom** — color-match `head-side-r.png`, `head-back.png`, `head-side-l.png` to `head-front` (`ver-head-review`)
+- [ ] *(Phase 2)* **Two-Bone Ribs/Hips/Girdle (`rig-two-bone-port`)**, **Ribcage Modes & Chungus Origin (`rig-ribcage-modes`)**, **Leg IK Rebuild (`rig-leg-ik`)**, **Hips-to-Ground (`rig-hips-to-ground`)**, **Pin-and-Rotate Piece Template (`rig-pin-piece-template`)**
+- [ ] *(Phase 3)* **Pyxl Unit Standard (`asset-pyxl-standard`)**, **Gotz Hand Ladder (`asset-hand`)**, **Marketeer/Piggy Foot (`asset-foot`)**, **Procreate Hierarchies (`asset-hierarchy-fix`)**, **Child Proportions Calibration (`asset-child-proportions`)**
+- [ ] *(Phase 5–6)* **Merge Projyct.Bytruvyus Features (`ui-merge-bytruvyus`)**, **AI-Free Production Checklist (`prod-procedural-checklist`)**
 
 ---
 
 ## IV. Future Visions
 
-1. **360° Skull Turn (`headStep` / `skullView`)**  
-   Integrate Puppyt's multi-angle skull sprites and synchronized jaw lock (`lip = 0°`) so head turns blend across profile/3-4/front views cleanly inside Evolved's neck/head controls.
-2. **On-Canvas Modular Sub-Rigs (Gotz Hand & Piggy Foot)**  
-   Add non-blocking split canvas sub-rig editors on double-clicking wrists or ankles for detailed finger and toe posing synchronized back to the main armature.
-3. **A–B–C Keyframes & Procedural In-Betweening**  
-   Expand Evolved's `Pose Snapshots` into an A–B–C keyframe cadence engine featuring stepped FPS, `Flow`/`Snap`/`Elastic`/`Mechanical`/`Clockwork` easing, onion-skin ghosts, and Muybridge breakdown synthesis.
-4. **Hybrid FABRIK / Floor Gravity & Elastic Pin Full (`elasticPinFull`)**  
-   Upgrade limb IK drag with multi-joint FABRIK fallback, ground-plane collision clamping, and elastic full-rig floor/air anchors with live dashed pull tethers.
-5. **Dual-Spine 1-Point Horizon Perspective & Proportion Morphing**  
-   Optional subtle lumbar/thorax perspective lean relative to vanishing point alongside smooth morphing between calibrated Adult (`0.14`) and Child (`CHILD_PROPORTION_SPECS`) anatomical presets.
+- *(Phase 2)* **Hybrid FABRIK, Floor Gravity & Elastic Pin Full** (`vis-fabrik-floor`)
+- *(Phase 3)* **Skull 360° Turn & Yorick 2.5D Skull** (`asset-skull-360`)
+- *(Phase 4)* **A–B–C Keyframes & Procedural In-Betweening** (`motion-abc`), **Procedure.Bitruvius Gesture Engine** (`motion-gesture-engine`)
+- *(Phase 5)* **Dual-Spine Horizon Perspective & Adult/Child Morphing** (`vis-dual-spine-perspective`)
+- *(Phase 6)* **Export Pipeline (DragonBones & Studio PNG/SVG)** (`prod-export-pipeline`)

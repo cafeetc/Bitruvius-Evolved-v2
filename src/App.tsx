@@ -25,16 +25,20 @@ import {
   PoseHistoryState,
   PosePresetId,
   SilhouetteDisplayMode,
+  StudioExportFormat,
 } from './types';
 import {
   JOINT_SPECS,
+  JOINT_SPEC_MAP,
+  POSE_RECALL_DURATION_MS,
   applyJointAngleConstraint,
   armatureToCharacterSnapshot,
   characterSnapshotToArmature,
   clampAngle180,
+  clampModeERatio,
   computeArmature,
-  computeModelBounds,
-  computeModelWorkingSquare,
+  computeNavelCenterPan,
+  createLaunchPose,
   createPosePreset,
   formatSignedNum,
   getPhysicsMultiplier,
@@ -42,9 +46,16 @@ import {
   mirrorPose,
   setJointMode,
 } from './utils/kinematics';
+import { runStudioExport, triggerDownloadExportResult } from './utils/export';
+import { parseScenePlannerCommand } from './utils/scenePlanner';
+import {
+  ImportedVectorSequence,
+  importVectorSequenceZip,
+} from './utils/zipSequenceImporter';
 import { StageCanvas } from './components/StageCanvas';
 import { TopConsoleBar, WorkspaceTabId } from './components/TopConsoleBar';
 import { InspectorConsole } from './components/InspectorConsole';
+import { BottomSnapshotShelf } from './components/BottomSnapshotShelf';
 import { IntertitleItem } from './components/IntertitleOverlay';
 import { RoadmapView } from './components/RoadmapView';
 import { ROADMAP_ENTRIES } from './data/roadmap';
@@ -56,6 +67,7 @@ const INITIAL_INTERTITLE: IntertitleItem = {
 };
 
 const MAX_POSE_HISTORY = 64;
+const DEFAULT_STAGE_ZOOM = 0.18;
 
 export default function App() {
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -63,9 +75,9 @@ export default function App() {
   const autoFitRef = useRef<boolean>(true);
   const transitionRafRef = useRef<number | null>(null);
 
-  // Initialize strictly to the canonical Vitruvian T-Pose baseline
+  // Initialize to Bitruvian T Pose with session Procedural Mood offsets
   const [poseSession, setPoseSession] = useState<PoseHistoryState>(() => {
-    const initial = createPosePreset('tpose');
+    const initial = createLaunchPose();
     return {
       currentPose: initial,
       lastPose: null,
@@ -77,9 +89,21 @@ export default function App() {
   const armature = poseSession.currentPose;
 
   const [activePreset, setActivePreset] = useState<PosePresetId | null>('tpose');
-  const [selectedJointId, setSelectedJointId] = useState<JointId>('r_wrist');
+  const [selectedJointId, setSelectedJointId] = useState<JointId>('pelvis');
+  const [selectionArmed, setSelectionArmed] = useState(false);
+  const handleSelectJoint = useCallback((id: JointId) => {
+    setSelectedJointId(id);
+    setSelectionArmed(true);
+  }, []);
+  const [darkMode, setDarkMode] = useState(false);
   const [hoveredJointId, setHoveredJointId] = useState<JointId | null>(null);
   const [snapshots, setSnapshots] = useState<CharacterPoseSnapshot[]>([]);
+  const [activeSnapshotId, setActiveSnapshotId] = useState<string | null>(null);
+  const [importedSequence, setImportedSequence] = useState<ImportedVectorSequence | null>(null);
+  const [sequencePlaying, setSequencePlaying] = useState(false);
+  const [sequenceFrameIndex, setSequenceFrameIndex] = useState(0);
+  const [zipImportStatus, setZipImportStatus] = useState<string | null>(null);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
 
   const [borderOpacity, setBorderOpacity] = useState<number>(1.0);
 
@@ -113,7 +137,7 @@ export default function App() {
   );
   const [intertitleDismissing, setIntertitleDismissing] = useState(false);
 
-  const [zoom, setZoom] = useState(0.45);
+  const [zoom, setZoom] = useState(DEFAULT_STAGE_ZOOM);
   const [pan, setPan] = useState({ x: 160, y: 40 });
   const [cursorCoords, setCursorCoords] = useState<{ x: number; y: number } | null>(null);
   const [cameraUnlocked, setCameraUnlocked] = useState(false);
@@ -190,7 +214,11 @@ export default function App() {
   }, []);
 
   const animateToArmature = useCallback(
-    (targetState: ArmatureState, durationMs = 280, recordHistory = true) => {
+    (
+      targetState: ArmatureState,
+      durationMs = POSE_RECALL_DURATION_MS,
+      recordHistory = true
+    ) => {
       cancelPoseTransition();
       const startState = armature;
       if (recordHistory) {
@@ -200,7 +228,7 @@ export default function App() {
 
       const step = (now: number) => {
         const elapsed = now - startTime;
-        const t = Math.min(1, elapsed / durationMs);
+        const t = durationMs <= 0 ? 1 : Math.min(1, elapsed / durationMs);
         const frameState = interpolateArmatureShortestPath(startState, targetState, t);
         setLiveArmature(() => frameState);
         if (t < 1) {
@@ -229,33 +257,29 @@ export default function App() {
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    const workingBase = computeModelWorkingSquare();
-    const liveBounds = computeModelBounds(computedJointsRef.current, armatureRef.current);
-
-    // Reserve outer horizontal & top-left clearance so pushed-aside callouts and top-left legend never crowd model
-    const sideRailMargin = showFigure ? 210 : 0;
-    const targetMinX = showFigure ? liveBounds.minX - sideRailMargin : workingBase.minX;
-    const targetMaxX = showFigure ? liveBounds.maxX + sideRailMargin : workingBase.maxX;
-    const targetMinY = showFigure ? liveBounds.minY - 120 : workingBase.minY;
-    const targetMaxY = showFigure ? liveBounds.maxY + (activeIntertitle ? 320 : 80) : workingBase.maxY;
-
-    const frameW = Math.max(PAPER_WIDTH, targetMaxX - targetMinX);
-    const frameH = Math.max(PAPER_HEIGHT, targetMaxY - targetMinY);
-    const centerX = (targetMinX + targetMaxX) / 2;
-    const centerY = (targetMinY + targetMaxY) / 2;
-
-    const padX = rect.width < 640 ? 52 : 76;
-    const padY = rect.height < 520 ? 44 : 56;
-    const availW = Math.max(140, rect.width - padX * 2);
-    const availH = Math.max(140, rect.height - padY * 2);
-    const nextZoom = Math.min(availW / frameW, availH / frameH, 1.25);
-
-    const nextPanX = rect.width / 2 - centerX * nextZoom;
-    const nextPanY = rect.height / 2 - centerY * nextZoom;
+    // INV-STAGE-02: Lock Navel Keystone origin (0,0) -> (PAPER_WIDTH/2, PAPER_HEIGHT/2)
+    // to the exact optical center of the 2/3 stage container.
+    const nextZoom =
+      rect.height < 480 || rect.width < 360
+        ? Math.min(
+            DEFAULT_STAGE_ZOOM,
+            Math.max(0.08, Math.min((rect.width - 72) / 1080, (rect.height - 72) / 1280))
+          )
+        : DEFAULT_STAGE_ZOOM;
+    const navelWorld = showFigure ? computedJointsRef.current.lumbar : canvasOrigin;
+    const targetX = armatureRef.current.isAnchorPinned ? canvasOrigin.x : navelWorld.x;
+    const targetY = armatureRef.current.isAnchorPinned ? canvasOrigin.y : navelWorld.y;
+    const nextPan = computeNavelCenterPan(
+      rect.width,
+      rect.height,
+      targetX,
+      targetY,
+      nextZoom
+    );
 
     setZoom(nextZoom);
-    setPan({ x: nextPanX, y: nextPanY });
-  }, [activeIntertitle, showFigure]);
+    setPan(nextPan);
+  }, [canvasOrigin, showFigure]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -369,6 +393,20 @@ export default function App() {
     setActivePreset(null);
   }, [animateToArmature, armature]);
 
+  const handleCycleHeadTurn = useCallback(() => {
+    applyAndCommitPose((prev) => ({
+      ...prev,
+      headTurn: (((prev.headTurn ?? 0) + 1) % 4) as 0 | 1 | 2 | 3,
+      joints: {
+        ...prev.joints,
+        lip: {
+          ...prev.joints.lip,
+          localAngle: 0,
+        },
+      },
+    }));
+  }, [applyAndCommitPose]);
+
   const handleResetPose = useCallback(() => {
     cancelPoseTransition();
     const baseline = createPosePreset('tpose');
@@ -383,8 +421,9 @@ export default function App() {
       cancelPoseTransition();
       setActivePreset(null);
       const update = (prev: ArmatureState): ArmatureState => {
+        if (JOINT_SPEC_MAP[id]?.locked) return prev;
         const constrained = applyJointAngleConstraint(nextLocalAngle, prev.continuousSpin);
-        if (id === 'waist') {
+        if (id === 'pelvis') {
           return { ...prev, rootRotation: constrained };
         }
         return {
@@ -453,7 +492,7 @@ export default function App() {
   const handleChangeModeERatio = useCallback(
     (id: JointId, ratio: number) => {
       cancelPoseTransition();
-      const clamped = Math.max(0, Math.min(10, Math.round(ratio * 100) / 100));
+      const clamped = clampModeERatio(ratio);
       applyAndCommitPose((prev) => ({
         ...prev,
         joints: {
@@ -538,8 +577,8 @@ export default function App() {
         return {
           ...prev,
           isAnchorPinned: false,
-          rootX: solved.waist.x,
-          rootY: solved.waist.y,
+          rootX: solved.pelvis.x,
+          rootY: solved.pelvis.y,
         };
       }
       return {
@@ -575,26 +614,175 @@ export default function App() {
       const nextIdx = prev.length + 1;
       const snap = armatureToCharacterSnapshot(
         armature,
-        `Pose ${String(nextIdx).padStart(2, '0')}`,
+        `Snapshot #${nextIdx}`,
         silhouetteMode
       );
-      return [snap, ...prev];
+      setActiveSnapshotId(snap.snapshotId);
+      return [...prev, snap];
     });
   }, [armature, silhouetteMode]);
 
   const handleRecallSnapshot = useCallback(
     (snapshot: CharacterPoseSnapshot) => {
       setActivePreset(null);
+      setActiveSnapshotId(snapshot.snapshotId);
       setSilhouetteMode(snapshot.viewMode);
       const restored = characterSnapshotToArmature(snapshot, armature);
-      animateToArmature(restored);
+      animateToArmature(restored, POSE_RECALL_DURATION_MS, true);
     },
     [animateToArmature, armature]
   );
 
+  const handleRenameSnapshot = useCallback((snapshotId: string, nextLabel: string) => {
+    setSnapshots((prev) =>
+      prev.map((s) => (s.snapshotId === snapshotId ? { ...s, label: nextLabel } : s))
+    );
+  }, []);
+
   const handleDeleteSnapshot = useCallback((snapshotId: string) => {
     setSnapshots((prev) => prev.filter((s) => s.snapshotId !== snapshotId));
+    setActiveSnapshotId((prev) => (prev === snapshotId ? null : prev));
   }, []);
+
+  const handleToggleSilhouetteMode = useCallback(() => {
+    setSilhouetteMode((m) =>
+      m === 'pure_shadow'
+        ? 'purple_skeleton'
+        : m === 'purple_skeleton'
+        ? 'hybrid_overlay'
+        : m === 'hybrid_overlay'
+        ? 'wireframe'
+        : 'pure_shadow'
+    );
+  }, []);
+
+  const handleToggleWireframeOverlay = useCallback(() => {
+    setSilhouetteMode((m) =>
+      m === 'hybrid_overlay'
+        ? 'purple_skeleton'
+        : m === 'wireframe'
+        ? 'pure_shadow'
+        : 'hybrid_overlay'
+    );
+  }, []);
+
+  const handleRunScenePlannerCommand = useCallback(
+    (cmd: string): { ok: boolean; message: string } => {
+      const parsed = parseScenePlannerCommand(cmd, snapshots);
+      if (!parsed.ok) {
+        return { ok: false, message: parsed.error };
+      }
+
+      const { action } = parsed;
+      if (action.type === 'reset_placement') {
+        handleResetPose();
+        return { ok: true, message: 'Placement reset to canonical Bitruvian T Pose.' };
+      }
+
+      if (action.type === 'select_preset') {
+        handleSelectPreset(action.preset);
+        return { ok: true, message: `Selected pose "${action.matchedLabel}".` };
+      }
+
+      if (action.type === 'select_snapshot') {
+        const snap = snapshots.find((s) => s.snapshotId === action.snapshotId);
+        if (snap) {
+          handleRecallSnapshot(snap);
+          return { ok: true, message: `Recalled snapshot "${snap.label}" (0.50s).` };
+        }
+        return { ok: false, message: 'Snapshot no longer available.' };
+      }
+
+      if (action.type === 'name_pose') {
+        const targetId = activeSnapshotId ?? snapshots[snapshots.length - 1]?.snapshotId ?? null;
+        if (targetId) {
+          handleRenameSnapshot(targetId, action.name);
+          setActiveSnapshotId(targetId);
+          return { ok: true, message: `Renamed snapshot to "${action.name}".` };
+        }
+        const snap = armatureToCharacterSnapshot(armature, action.name, silhouetteMode);
+        setSnapshots((prev) => [...prev, snap]);
+        setActiveSnapshotId(snap.snapshotId);
+        return { ok: true, message: `Saved named pose "${action.name}".` };
+      }
+
+      return { ok: false, message: 'Command could not be dispatched.' };
+    },
+    [
+      activeSnapshotId,
+      armature,
+      handleRecallSnapshot,
+      handleRenameSnapshot,
+      handleResetPose,
+      handleSelectPreset,
+      silhouetteMode,
+      snapshots,
+    ]
+  );
+
+  const handleRunExport = useCallback(
+    async (format: StudioExportFormat) => {
+      const activeSnap =
+        snapshots.find((s) => s.snapshotId === activeSnapshotId) ??
+        armatureToCharacterSnapshot(armature, 'Bitruvius Pose', silhouetteMode);
+      const result = await runStudioExport(format, {
+        snapshot: activeSnap,
+        snapshots: snapshots.length > 0 ? snapshots : [activeSnap],
+        svgElement: svgRef.current,
+        theme: darkMode ? 'dark' : 'light',
+      });
+      triggerDownloadExportResult(result);
+      setExportFeedback(`Exported ${result.filename}`);
+      window.setTimeout(() => setExportFeedback(null), 2600);
+    },
+    [activeSnapshotId, armature, darkMode, silhouetteMode, snapshots]
+  );
+
+  const handleImportZipSequence = useCallback(
+    async (file: File) => {
+      try {
+        const buf = await file.arrayBuffer();
+        const seq = await importVectorSequenceZip(buf, file.name, armature);
+        setImportedSequence(seq);
+        setSequenceFrameIndex(0);
+        setSequencePlaying(seq.frames.length > 1);
+        setZipImportStatus(
+          `Loaded "${seq.name}" (${seq.frames.length} frames, ${seq.fps} fps)`
+        );
+        const first = seq.frames[0];
+        if (first) {
+          animateToArmature(
+            characterSnapshotToArmature(first.snapshot, armature),
+            POSE_RECALL_DURATION_MS,
+            true
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'ZIP import failed.';
+        setZipImportStatus(msg);
+      }
+    },
+    [animateToArmature, armature]
+  );
+
+  useEffect(() => {
+    if (!sequencePlaying || !importedSequence || importedSequence.frames.length <= 1) {
+      return;
+    }
+    const frame = importedSequence.frames[sequenceFrameIndex];
+    const stepMs = Math.max(120, frame?.durationMs ?? Math.round(1000 / importedSequence.fps));
+    const timer = window.setTimeout(() => {
+      const nextIdx = (sequenceFrameIndex + 1) % importedSequence.frames.length;
+      const nextFrame = importedSequence.frames[nextIdx];
+      setSequenceFrameIndex(nextIdx);
+      if (nextFrame) {
+        const nextArm = characterSnapshotToArmature(nextFrame.snapshot, armatureRef.current);
+        animateToArmature(nextArm, Math.min(POSE_RECALL_DURATION_MS, stepMs * 0.85), false);
+      }
+    }, stepMs);
+
+    return () => window.clearTimeout(timer);
+  }, [animateToArmature, importedSequence, sequenceFrameIndex, sequencePlaying]);
 
   const handleUpdateGrid = useCallback((patch: Partial<GridConfig>) => {
     setGrid((prev) => ({ ...prev, ...patch }));
@@ -656,7 +844,13 @@ export default function App() {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         const current = computedJoints[selectedJointId];
         const runtime = armature.joints[selectedJointId];
-        if (!current || current.mode === 'PIN' || runtime.physicsMode === 'rigid') return;
+        if (
+          !current ||
+          current.spec.locked ||
+          current.mode === 'PIN' ||
+          runtime.physicsMode === 'rigid'
+        )
+          return;
         e.preventDefault();
         const mult = getPhysicsMultiplier(runtime);
         const baseStep = e.shiftKey ? 0.25 : 1.0;
@@ -686,9 +880,10 @@ export default function App() {
         showFigure={showFigure}
         onToggleFigure={() => setShowFigure((v) => !v)}
         silhouetteMode={silhouetteMode}
-        onToggleSilhouetteMode={() =>
-          setSilhouetteMode((m) => (m === 'wireframe' ? 'pure_shadow' : 'wireframe'))
-        }
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((d) => !d)}
+        onToggleSilhouetteMode={handleToggleSilhouetteMode}
+        onToggleWireframeOverlay={handleToggleWireframeOverlay}
         activePreset={activePreset}
         onSelectPreset={handleSelectPreset}
         onMirrorPose={handleMirrorPose}
@@ -704,9 +899,14 @@ export default function App() {
       {activeWorkspaceTab === 'roadmap' ? (
         <RoadmapView />
       ) : (
-        /* Strict 2/3 Stage Canvas + 1/3 Dark #16001E Console Split Layout */
-        <div className="flex-1 flex flex-col lg:flex-row min-h-0">
-        <main className="flex-1 flex flex-col min-w-0 min-h-0">
+        /* Strict 2/3 Stage Canvas + 1/3 Dark #16001E Console Split Layout (INV-STAGE-01) */
+        <div className="flex-1 flex flex-row min-h-0">
+        <main
+          data-stage-container="true"
+          className={`${
+            inspectorOpen ? 'w-2/3' : 'flex-1'
+          } flex flex-col min-w-0 min-h-0`}
+        >
           <div
             className="flex-1 relative min-h-0"
             onPointerDownCapture={handleDismissIntertitle}
@@ -727,7 +927,7 @@ export default function App() {
               pan={pan}
               onZoomChange={handleManualZoom}
               onPanChange={handleManualPan}
-              onSelectJoint={setSelectedJointId}
+              onSelectJoint={handleSelectJoint}
               onHoverJoint={setHoveredJointId}
               onUpdateArmature={handleUpdateArmature}
               onCommitPoseHistory={handleCommitPoseHistory}
@@ -738,18 +938,36 @@ export default function App() {
               intertitleDismissing={intertitleDismissing}
               onTriggerDismissIntertitle={handleDismissIntertitle}
               onIntertitleDismissComplete={handleIntertitleComplete}
+              onCycleHeadTurn={handleCycleHeadTurn}
+              darkMode={darkMode}
+              selectionArmed={selectionArmed}
             />
           </div>
 
+          <BottomSnapshotShelf
+            snapshots={snapshots}
+            activeSnapshotId={activeSnapshotId}
+            onCaptureSnapshot={handleSaveSnapshot}
+            onRecallSnapshot={handleRecallSnapshot}
+            onRenameSnapshot={handleRenameSnapshot}
+            onDeleteSnapshot={handleDeleteSnapshot}
+            onImportZipSequence={handleImportZipSequence}
+            importedSequence={importedSequence}
+            sequencePlaying={sequencePlaying}
+            sequenceFrameIndex={sequenceFrameIndex}
+            onToggleSequencePlay={() => setSequencePlaying((p) => !p)}
+            zipImportStatus={zipImportStatus}
+          />
+
           {/* Dedicated Bottom Status, Console Tab & Zoom Strip */}
-          <div className="h-9 px-3 console-panel border-b-0 border-x-0 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-4 text-[11px] min-w-0 overflow-x-auto whitespace-nowrap">
+          <div className="h-9 px-2.5 console-panel border-b-0 border-x-0 flex items-center justify-between gap-2 shrink-0 min-w-0">
+            <div className="flex items-center gap-2.5 text-[10.5px] min-w-0 overflow-x-auto whitespace-nowrap">
               <div>
                 <span className="font-vera text-[#9E8EB3] mr-1">X</span>
                 <span className="font-typewriter font-bold text-[#FAF6FF]">
                   {cursorCoords ? `${formatSignedNum(cursorCoords.x)} px` : '+0.00 px'}
                 </span>
-                <span className="font-typewriter text-[#C8B2E0] ml-1">
+                <span className="hidden xl:inline font-typewriter text-[#C8B2E0] ml-1">
                   ({cursorCoords ? `${formatSignedNum(cursorCoords.x / PYXL_PX)} pyx` : '+0.00 pyx'})
                 </span>
               </div>
@@ -758,11 +976,11 @@ export default function App() {
                 <span className="font-typewriter font-bold text-[#FAF6FF]">
                   {cursorCoords ? `${formatSignedNum(cursorCoords.y)} px` : '+0.00 px'}
                 </span>
-                <span className="font-typewriter text-[#C8B2E0] ml-1">
+                <span className="hidden xl:inline font-typewriter text-[#C8B2E0] ml-1">
                   ({cursorCoords ? `${formatSignedNum(cursorCoords.y / PYXL_PX)} pyx` : '+0.00 pyx'})
                 </span>
               </div>
-              <div className="hidden sm:block">
+              <div className="hidden 2xl:block">
                 <span className="font-vera text-[#9E8EB3] mr-1">mpyx</span>
                 <span className="font-typewriter font-bold text-[#E9D5FF]">
                   {cursorCoords
@@ -779,7 +997,7 @@ export default function App() {
                 type="button"
                 onClick={() => setInspectorOpen((v) => !v)}
                 title={inspectorOpen ? 'Collapse console inspector' : 'Expand console inspector'}
-                className={`px-2.5 py-0.5 mr-1 font-vera font-bold text-[10.5px] rounded-[2px] border flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                className={`px-2 py-0.5 font-vera font-bold text-[10px] rounded-[2px] border flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                   inspectorOpen
                     ? 'bg-[#361547] border-[#D8B4FE]/40 text-[#FAF6FF]'
                     : 'bg-[#21072B]/80 border-[#EBE0F5]/18 text-[#C8B2E0] hover:text-[#FAF6FF]'
@@ -790,20 +1008,25 @@ export default function App() {
                 ) : (
                   <PanelRightOpen className="w-3 h-3" />
                 )}
-                Console
+                <span className="hidden md:inline">Console</span>
               </button>
               <button
                 type="button"
                 onClick={() => setCameraUnlocked((v) => !v)}
                 title="Hold Shift or toggle to enable click-and-drag camera pan & wheel zoom"
-                className={`px-2 py-0.5 mr-1 font-vera font-bold text-[10.5px] rounded-[2px] border flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                className={`px-2 py-0.5 font-vera font-bold text-[10px] rounded-[2px] border flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                   shiftHeld || cameraUnlocked
                     ? 'bg-[#361547] border-[#D8B4FE]/45 text-[#FAF6FF]'
                     : 'bg-[#21072B]/70 border-[#EBE0F5]/16 text-[#B8A9C9] hover:text-[#FAF6FF]'
                 }`}
               >
                 <Move className="w-3 h-3" />
-                {shiftHeld || cameraUnlocked ? 'Cam: Shift On' : 'Cam: Static [Shift]'}
+                <span className="hidden lg:inline">
+                  {shiftHeld || cameraUnlocked ? 'Cam: Shift On' : 'Cam: Static [Shift]'}
+                </span>
+                <span className="lg:hidden">
+                  {shiftHeld || cameraUnlocked ? 'Pan On' : 'Cam'}
+                </span>
               </button>
               <button
                 type="button"
@@ -817,7 +1040,7 @@ export default function App() {
                 type="button"
                 onClick={() => handleSetExactZoom(1.0)}
                 title="Set 100.00% actual pixel scale"
-                className="px-1.5 py-0.5 font-typewriter font-bold text-[11px] text-[#FAF6FF] hover:bg-[#2A0E38] rounded-[2px] cursor-pointer min-w-[58px] text-center"
+                className="px-1 py-0.5 font-typewriter font-bold text-[10.5px] text-[#FAF6FF] hover:bg-[#2A0E38] rounded-[2px] cursor-pointer min-w-[48px] text-center"
               >
                 {(zoom * 100).toFixed(2)}%
               </button>
@@ -833,7 +1056,7 @@ export default function App() {
                 type="button"
                 onClick={handleFitClick}
                 title="Fit working frame to viewport"
-                className="px-2 py-0.5 font-vera font-bold text-[10.5px] text-[#D8B4FE] hover:bg-[#2A0E38] rounded-[2px] flex items-center gap-1 cursor-pointer"
+                className="px-1.5 py-0.5 font-vera font-bold text-[10px] text-[#D8B4FE] hover:bg-[#2A0E38] rounded-[2px] flex items-center gap-1 cursor-pointer"
               >
                 <Maximize2 className="w-3 h-3" />
                 Fit
@@ -847,7 +1070,7 @@ export default function App() {
             armature={armature}
             computedJoints={computedJoints}
             selectedJointId={selectedJointId}
-            onSelectJoint={setSelectedJointId}
+            onSelectJoint={handleSelectJoint}
             onChangeJointAngle={handleChangeJointAngle}
             onSetContinuousSpin={handleSetContinuousSpin}
             onChangePhysicsMode={handleChangePhysicsMode}
@@ -872,6 +1095,9 @@ export default function App() {
             showAllBadges={showAllBadges}
             onToggleAllBadges={() => setShowAllBadges((v) => !v)}
             onSelectPreset={handleSelectPreset}
+            onRunScenePlannerCommand={handleRunScenePlannerCommand}
+            onRunExport={handleRunExport}
+            exportFeedback={exportFeedback}
           />
         )}
         </div>

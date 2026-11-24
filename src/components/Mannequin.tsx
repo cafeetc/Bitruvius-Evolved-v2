@@ -18,6 +18,8 @@ import {
 } from '../utils/skeletonAttachment';
 import { Bone } from './Bone';
 
+import { HEAD_TURN_LABELS } from '../data/skeletonRig';
+
 interface MannequinProps {
   armature: ArmatureState;
   computedJoints: Record<JointId, ComputedJoint>;
@@ -32,6 +34,9 @@ interface MannequinProps {
   onHoverJoint: (id: JointId | null) => void;
   onPointerDownJoint: (e: React.PointerEvent<SVGGElement>, jointId: JointId) => void;
   onPointerDownBone: (e: React.PointerEvent<SVGGElement>, jointId: JointId) => void;
+  onCycleHeadTurn?: () => void;
+  silhouetteInk?: string;
+  selectionArmed?: boolean;
 }
 
 const MODE_GLYPH: Record<JointMode, string> = {
@@ -49,6 +54,9 @@ const CANVAS_MODE_INK: Record<JointMode, string> = {
 };
 
 export const SILHOUETTE_INK_COLOR = '#261D2E';
+export const HOVER_PIECE_COLOR = '#22C55E';
+export const SELECTED_PIECE_COLOR = '#9D79BC';
+export const ACTIVE_HALO_COLOR = '#D8C4F0';
 
 export const Mannequin: React.FC<MannequinProps> = ({
   armature,
@@ -64,8 +72,15 @@ export const Mannequin: React.FC<MannequinProps> = ({
   onHoverJoint,
   onPointerDownJoint,
   onPointerDownBone,
+  onCycleHeadTurn,
+  silhouetteInk = SILHOUETTE_INK_COLOR,
+  selectionArmed = true,
 }) => {
   const pureShadow = silhouetteMode === 'pure_shadow';
+  const wireframe = silhouetteMode === 'wireframe';
+  const hybridOverlay = silhouetteMode === 'hybrid_overlay';
+  const showSkeletonPieces = !wireframe;
+  const showWireframeOverlay = wireframe || hybridOverlay;
 
   const sortedSkeletonPieces = useMemo(
     () => buildSkeletonPieceRenders(armature, computedJoints),
@@ -73,11 +88,21 @@ export const Mannequin: React.FC<MannequinProps> = ({
   );
 
   const digitalModel = useMemo(
-    () => (pureShadow ? null : computeDigitalModel(armature, computedJoints)),
-    [armature, computedJoints, pureShadow]
+    () => (showWireframeOverlay ? computeDigitalModel(armature, computedJoints) : null),
+    [armature, computedJoints, showWireframeOverlay]
   );
 
   const selectedJoint = computedJoints[selectedJointId];
+  const activeSelectionJointId = selectionArmed ? selectedJointId : null;
+  const activePieces = useMemo(
+    () =>
+      sortedSkeletonPieces.filter(
+        (piece) =>
+          piece.jointId === activeSelectionJointId || piece.jointId === hoveredJointId
+      ),
+    [sortedSkeletonPieces, activeSelectionJointId, hoveredJointId]
+  );
+
   const anchorPoint = useMemo(
     () => getEnvironmentalAnchorPoint(computedJoints, armature.environmentalAnchor),
     [computedJoints, armature.environmentalAnchor]
@@ -91,6 +116,7 @@ export const Mannequin: React.FC<MannequinProps> = ({
       x2: number;
       y2: number;
       isSpine: boolean;
+      isGhost: boolean;
       isActive: boolean;
     }[] = [];
 
@@ -103,17 +129,20 @@ export const Mannequin: React.FC<MannequinProps> = ({
         hoveredJointId === spec.id ||
         selectedJointId === spec.parentId;
 
-      segments.push({
-        key: `seg-${spec.id}`,
-        x1: parent.x,
-        y1: parent.y,
-        x2: child.x,
-        y2: child.y,
-        isSpine: Boolean(spec.isSpine),
-        isActive,
-      });
+      if (!spec.aimTarget && Math.hypot(child.x - parent.x, child.y - parent.y) > 0.5) {
+        segments.push({
+          key: `seg-${spec.id}`,
+          x1: parent.x,
+          y1: parent.y,
+          x2: child.x,
+          y2: child.y,
+          isSpine: Boolean(spec.isSpine),
+          isGhost: Boolean(spec.isGhost),
+          isActive,
+        });
+      }
 
-      if (spec.endExtensionPx && spec.endExtensionPx > 0) {
+      if (Math.hypot(child.endX - child.x, child.endY - child.y) > 0.5) {
         segments.push({
           key: `ext-${spec.id}`,
           x1: child.x,
@@ -121,6 +150,7 @@ export const Mannequin: React.FC<MannequinProps> = ({
           x2: child.endX,
           y2: child.endY,
           isSpine: Boolean(spec.isSpine),
+          isGhost: Boolean(spec.isGhost || spec.role === 'shoulder_girdle' || spec.role === 'ribcage'),
           isActive: selectedJointId === spec.id || hoveredJointId === spec.id,
         });
       }
@@ -140,9 +170,44 @@ export const Mannequin: React.FC<MannequinProps> = ({
           width="120%"
           height="120%"
         >
-          <feFlood floodColor={SILHOUETTE_INK_COLOR} floodOpacity="1" result="silhouetteInk" />
+          <feFlood floodColor={silhouetteInk} floodOpacity="1" result="silhouetteInk" />
           <feComposite in="silhouetteInk" in2="SourceAlpha" operator="in" />
         </filter>
+        <filter
+          id="skeleton-purple-tint"
+          colorInterpolationFilters="sRGB"
+          x="-10%"
+          y="-10%"
+          width="120%"
+          height="120%"
+        >
+          <feFlood floodColor={SELECTED_PIECE_COLOR} floodOpacity="1" result="purpleInk" />
+          <feComposite in="purpleInk" in2="SourceAlpha" operator="in" />
+        </filter>
+        {(['hover', 'selected'] as const).map((kind) => (
+          <filter
+            key={`active-${kind}`}
+            id={`skeleton-active-${kind}`}
+            colorInterpolationFilters="sRGB"
+            x="-150%"
+            y="-150%"
+            width="400%"
+            height="400%"
+          >
+            <feFlood
+              floodColor={kind === 'hover' ? HOVER_PIECE_COLOR : SELECTED_PIECE_COLOR}
+              result="tint"
+            />
+            <feComposite in="tint" in2="SourceAlpha" operator="in" result="solid" />
+            <feGaussianBlur in="SourceAlpha" stdDeviation="26" result="soft" />
+            <feFlood floodColor={ACTIVE_HALO_COLOR} floodOpacity="0.85" result="haloColor" />
+            <feComposite in="haloColor" in2="soft" operator="in" result="halo" />
+            <feMerge>
+              <feMergeNode in="halo" />
+              <feMergeNode in="solid" />
+            </feMerge>
+          </filter>
+        ))}
         <filter id="skeleton-selected-glow" x="-20%" y="-20%" width="140%" height="140%">
           <feDropShadow dx="0" dy="0" stdDeviation="6" floodColor="#A855F7" floodOpacity="0.85" />
         </filter>
@@ -151,8 +216,8 @@ export const Mannequin: React.FC<MannequinProps> = ({
         </filter>
       </defs>
 
-      {/* Pass 0: Puppyt Underlying Digital Kinematic Model (rendered beneath purple skeleton in wireframe view) */}
-      {!pureShadow && digitalModel && (
+      {/* Pass 0: Puppyt Underlying Digital Kinematic Model (Wireframe & Hybrid Overlay) */}
+      {showWireframeOverlay && digitalModel && (
         <g data-digital-model="true" pointerEvents="none">
           {digitalModel.segments.map((seg) => {
             const isStrained = seg.kind === 'strained';
@@ -214,31 +279,55 @@ export const Mannequin: React.FC<MannequinProps> = ({
         </g>
       )}
 
-      {/* Pass 1: Z-Sorted 33-Piece Skeleton (Unified Dark Purple-Gray Silhouette by default; full color in Wireframe) */}
-      <g
-        data-skeleton-silhouette="true"
-        data-silhouette-color={pureShadow ? SILHOUETTE_INK_COLOR : undefined}
-        filter={pureShadow ? 'url(#skeleton-silhouette-tint)' : undefined}
-        style={{
-          opacity: pureShadow ? 0.96 : 1,
-        }}
-      >
-        {sortedSkeletonPieces.map((piece) => (
-          <Bone
-            key={piece.key}
-            piece={piece}
-            isSelected={!pureShadow && selectedJointId === piece.jointId}
-            isHovered={!pureShadow && hoveredJointId === piece.jointId}
-            pureShadow={pureShadow}
-            onPointerDown={onPointerDownBone}
-            onPointerEnter={onHoverJoint}
-            onPointerLeave={() => onHoverJoint(null)}
-          />
-        ))}
-      </g>
+      {/* Pass 1: Z-Sorted 33-Piece Skeleton (Pure Shadow or Bitruvian Purple; hidden in Wireframe) */}
+      {showSkeletonPieces && (
+        <g
+          data-skeleton-silhouette="true"
+          data-silhouette-color={pureShadow ? silhouetteInk : SELECTED_PIECE_COLOR}
+          filter={pureShadow ? 'url(#skeleton-silhouette-tint)' : 'url(#skeleton-purple-tint)'}
+          style={{
+            opacity: pureShadow ? 0.96 : 1,
+          }}
+        >
+          {sortedSkeletonPieces.map((piece) => (
+            <Bone
+              key={piece.key}
+              piece={piece}
+              isSelected={false}
+              isHovered={false}
+              pureShadow={true}
+              onPointerDown={onPointerDownBone}
+              onPointerEnter={onHoverJoint}
+              onPointerLeave={() => onHoverJoint(null)}
+            />
+          ))}
+        </g>
+      )}
+
+      {/* Pass 1b: Active Hover / Selected Piece Overlay with Feathered Light-Purple Halo */}
+      {showSkeletonPieces && activePieces.length > 0 && (
+        <g data-active-pieces="true" pointerEvents="none">
+          {activePieces.map((piece) => (
+            <g key={`active-${piece.key}`} transform={piece.matrixCss}>
+              <image
+                href={piece.asset.assetUrl}
+                x={piece.asset.x}
+                y={piece.asset.y}
+                width={piece.asset.w}
+                height={piece.asset.h}
+                preserveAspectRatio="none"
+                filter={`url(#skeleton-active-${
+                  piece.jointId === activeSelectionJointId ? 'selected' : 'hover'
+                })`}
+                className="active-piece-fade"
+              />
+            </g>
+          ))}
+        </g>
+      )}
 
       {/* Pass 2: Alignment Wireframe & Transparent Bordered On-Canvas Callouts */}
-      {!pureShadow && (
+      {showWireframeOverlay && (
         <g>
           {/* Selected Joint Reference Parent-Axis Ray */}
           {selectedJoint &&
@@ -293,8 +382,8 @@ export const Mannequin: React.FC<MannequinProps> = ({
                   y2={seg.y2}
                   stroke="#16001E"
                   strokeOpacity={0.65}
-                  strokeWidth={5}
-                  strokeDasharray={seg.isSpine ? '8 6' : undefined}
+                  strokeWidth={seg.isGhost ? 3 : 5}
+                  strokeDasharray={seg.isSpine ? '8 6' : seg.isGhost ? '4 4' : undefined}
                   strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
                 />
@@ -304,9 +393,9 @@ export const Mannequin: React.FC<MannequinProps> = ({
                   x2={seg.x2}
                   y2={seg.y2}
                   stroke={seg.isActive ? '#E9D5FF' : seg.isSpine ? '#D8B4FE' : '#F3EEF9'}
-                  strokeOpacity={seg.isActive ? 0.96 : 0.84}
-                  strokeWidth={3}
-                  strokeDasharray={seg.isSpine ? '8 6' : undefined}
+                  strokeOpacity={seg.isActive ? 0.96 : seg.isGhost ? 0.45 : 0.84}
+                  strokeWidth={seg.isGhost ? 1.5 : 3}
+                  strokeDasharray={seg.isSpine ? '8 6' : seg.isGhost ? '4 4' : undefined}
                   strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
                 />
@@ -328,7 +417,7 @@ export const Mannequin: React.FC<MannequinProps> = ({
             />
           </g>
 
-          {/* Interactive 10px Red Joint Dots & 15px Hover Halos */}
+          {/* Interactive Half-Size (5px) Red Joint Dots (16px hit targets preserved) */}
           <g>
             {JOINT_SPECS.map((spec) => {
               const joint = computedJoints[spec.id];
@@ -337,12 +426,16 @@ export const Mannequin: React.FC<MannequinProps> = ({
               const isHovered = hoveredJointId === spec.id;
               const isRigid = runtime.physicsMode === 'rigid';
               const isKeystoneJoint =
-                (armature.internalKeystone === 'navel' && joint.id === 'navel') ||
+                (armature.internalKeystone === 'navel' && joint.id === 'lumbar') ||
                 (armature.internalKeystone === 'crown' && joint.id === 'head');
+              const dotRadius = spec.isTip || spec.isGhost ? 1.65 : 2.5;
+              const canDragDot =
+                !(joint.mode === 'PIN' && !spec.isTip) && !isRigid;
 
               return (
                 <g
                   key={`joint-${spec.id}`}
+                  data-joint-id={spec.id}
                   transform={`translate(${joint.x}, ${joint.y})`}
                   onPointerEnter={() => onHoverJoint(spec.id)}
                   onPointerLeave={() => onHoverJoint(null)}
@@ -352,50 +445,35 @@ export const Mannequin: React.FC<MannequinProps> = ({
                       ? 'grabbing'
                       : cameraMoveActive
                       ? 'grab'
-                      : joint.mode === 'PIN' || isRigid
+                      : !canDragDot
                       ? 'not-allowed'
                       : 'pointer',
                   }}
                 >
                   <g transform={`scale(${1 / zoom})`}>
                     <circle r={16} fill="transparent" />
-                    {/* Selected 10px joint target ring */}
-                    {isSelected && (
-                      <circle
-                        r={12.5}
-                        fill="rgba(220, 38, 38, 0.14)"
-                        stroke="#EF4444"
-                        strokeWidth={1.25}
-                        strokeDasharray="3 3"
-                      />
-                    )}
-                    {/* 15px (r=7.5) crimson hover halo */}
-                    {isHovered && (
-                      <circle
-                        r={7.5}
-                        fill="rgba(220, 38, 38, 0.28)"
-                        stroke="#EF4444"
-                        strokeWidth={1.5}
-                      />
-                    )}
-                    {/* 10px (r=5) default red joint dot */}
                     <circle
-                      r={5}
+                      r={dotRadius}
                       fill={
-                        joint.mode === 'PIN' || isRigid
+                        spec.isTip || spec.isGhost
+                          ? isSelected || isHovered
+                            ? '#22C55E'
+                            : '#9F1239'
+                          : joint.mode === 'PIN' || isRigid
                           ? '#7F1D1D'
                           : isSelected || isHovered
                           ? '#EF4444'
                           : '#DC2626'
                       }
+                      fillOpacity={spec.isGhost ? 0.72 : 1}
                       stroke="#F6F2FA"
-                      strokeWidth={1.5}
+                      strokeWidth={0.75}
                       style={{
                         transition: 'fill 140ms ease',
                       }}
                     />
                     <circle
-                      r={1.5}
+                      r={spec.isTip || spec.isGhost ? 0.9 : 1.5}
                       fill={
                         isKeystoneJoint
                           ? '#FBBF24'
@@ -509,6 +587,56 @@ export const Mannequin: React.FC<MannequinProps> = ({
           </g>
         </g>
       )}
+
+      {onCycleHeadTurn && (() => {
+        const label = HEAD_TURN_LABELS[armature.headTurn ?? 0];
+        const headJoint = computedJoints.head;
+        const scale = 0.5 / zoom;
+        return (
+          <g
+            data-head-swivel="true"
+            transform={`translate(${headJoint.endX}, ${headJoint.endY}) scale(${scale})`}
+            style={{ cursor: 'pointer' }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCycleHeadTurn();
+            }}
+          >
+            <rect
+              x={-70}
+              y={-95}
+              width={140}
+              height={60}
+              rx={6}
+              fill="rgba(22, 0, 30, 0.82)"
+              stroke="#D8B4FE"
+              strokeWidth={1.5}
+            />
+            <text
+              x={0}
+              y={-66}
+              textAnchor="middle"
+              fill="#F3E8FF"
+              fontSize={26}
+              fontWeight={700}
+              fontFamily="UMTypewriter, monospace"
+            >
+              {'<->'}
+            </text>
+            <text
+              x={0}
+              y={-43}
+              textAnchor="middle"
+              fill="#D8B4FE"
+              fontSize={13}
+              fontFamily="UMTypewriter, monospace"
+            >
+              {label}
+            </text>
+          </g>
+        );
+      })()}
     </g>
   );
 };

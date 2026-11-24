@@ -13,8 +13,11 @@ import {
   PhysicsModeId,
 } from '../types';
 import {
+  MODE_E_MAX,
+  MODE_E_MIN,
   PHYSICS_MODE_INFO,
   applyJointAngleConstraint,
+  clampModeERatio,
   formatSignedNum,
   getPhysicsMultiplier,
 } from '../utils/kinematics';
@@ -106,7 +109,10 @@ export const FKControls: React.FC<FKControlsProps> = ({
   }, [selected.id, selectedRuntime.modeERatio]);
 
   const physicsMultiplier = getPhysicsMultiplier(selectedRuntime);
-  const isAngleLocked = selected.mode === 'PIN' || selectedRuntime.physicsMode === 'rigid';
+  const isAngleLocked =
+    Boolean(selected.spec.locked) ||
+    selected.mode === 'PIN' ||
+    selectedRuntime.physicsMode === 'rigid';
 
   const commitAngleInput = () => {
     const parsed = parseFloat(angleInput);
@@ -145,10 +151,10 @@ export const FKControls: React.FC<FKControlsProps> = ({
 
   const commitModeEText = () => {
     const parsed = parseFloat(modeEText.replace(/×|x/gi, '').trim());
-    if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 10) {
-      const rounded = Math.round(parsed * 100) / 100;
-      onChangeModeERatio(selected.id, rounded);
-      setModeEText(rounded.toFixed(2));
+    if (!Number.isNaN(parsed)) {
+      const clamped = clampModeERatio(parsed);
+      onChangeModeERatio(selected.id, clamped);
+      setModeEText(clamped.toFixed(2));
     } else {
       setModeEText(selectedRuntime.modeERatio.toFixed(2));
     }
@@ -195,7 +201,7 @@ export const FKControls: React.FC<FKControlsProps> = ({
           </span>
         </div>
 
-        {selected.id !== 'waist' && (
+        {selected.id !== 'pelvis' && (
           <div className="grid grid-cols-3 gap-1 bg-[#0D0012]/80 p-0.5 border border-[#EBE0F5]/14 rounded-[2px]">
             {MODE_OPTIONS.map((opt) => {
               const active = selected.mode === opt.mode;
@@ -204,10 +210,10 @@ export const FKControls: React.FC<FKControlsProps> = ({
                 <button
                   key={opt.mode}
                   type="button"
-                  disabled={ikDisabled}
+                  disabled={ikDisabled || Boolean(selected.spec.locked)}
                   onClick={() => onChangeJointMode(selected.id, opt.mode)}
                   className={`py-1 text-[10px] font-vera font-bold rounded-[2px] flex items-center justify-center gap-1 ${
-                    ikDisabled
+                    ikDisabled || selected.spec.locked
                       ? 'opacity-30 cursor-not-allowed text-[#8B7B9E]'
                       : active
                       ? 'bg-[#361547] text-[#FAF6FF] border border-[#D8B4FE]/40 cursor-pointer'
@@ -229,7 +235,7 @@ export const FKControls: React.FC<FKControlsProps> = ({
               htmlFor="joint-angle-input"
               className="font-vera font-bold text-[10.5px] text-[#D9CDE6]"
             >
-              {selected.id === 'waist' ? 'Root Tilt' : 'Local Angle'}
+              {selected.id === 'pelvis' ? 'Root Tilt' : 'Local Angle'}
             </label>
             <div className="flex items-center gap-1">
               <button
@@ -310,7 +316,7 @@ export const FKControls: React.FC<FKControlsProps> = ({
                 {formatSignedNum(relX / PYXL_PX)} pyx
               </span>
             </div>
-            {selected.id === 'waist' && !armature.isAnchorPinned ? (
+            {selected.id === 'pelvis' && !armature.isAnchorPinned ? (
               <input
                 type="text"
                 value={rootXInput}
@@ -332,7 +338,7 @@ export const FKControls: React.FC<FKControlsProps> = ({
                 {formatSignedNum(relY / PYXL_PX)} pyx
               </span>
             </div>
-            {selected.id === 'waist' && !armature.isAnchorPinned ? (
+            {selected.id === 'pelvis' && !armature.isAnchorPinned ? (
               <input
                 type="text"
                 value={rootYInput}
@@ -399,15 +405,26 @@ export const FKControls: React.FC<FKControlsProps> = ({
         {selectedRuntime.physicsMode === 'mode_e' && (
           <div className="pt-1.5 mt-1 border-t border-[#EBE0F5]/12 space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-vera text-[10px] text-[#B8A9C9]">
+              <label
+                htmlFor="mode-e-ratio-input"
+                className="font-vera text-[10px] text-[#B8A9C9]"
+              >
                 Mode E Blend Factor
-              </span>
-              {editingModeE ? (
+              </label>
+              <div className="flex items-center gap-1">
                 <input
+                  id="mode-e-ratio-input"
                   type="text"
-                  autoFocus
-                  value={modeEText}
-                  onChange={(e) => setModeEText(e.target.value)}
+                  aria-label="Mode E custom ratio"
+                  value={editingModeE ? modeEText : selectedRuntime.modeERatio.toFixed(2)}
+                  onFocus={() => {
+                    setModeEText(selectedRuntime.modeERatio.toFixed(2));
+                    setEditingModeE(true);
+                  }}
+                  onChange={(e) => {
+                    setEditingModeE(true);
+                    setModeEText(e.target.value);
+                  }}
                   onBlur={commitModeEText}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') commitModeEText();
@@ -416,28 +433,18 @@ export const FKControls: React.FC<FKControlsProps> = ({
                       setEditingModeE(false);
                     }
                   }}
-                  className="w-20 px-1.5 py-0.5 text-right font-typewriter font-bold text-[11px] text-[#FAF6FF] bg-[#16001E] border border-[#D8B4FE] rounded-[2px] focus:outline-none"
+                  className="w-16 px-1.5 py-0.5 text-right font-typewriter font-bold text-[11px] text-[#FAF6FF] bg-[#16001E] border border-[#D8B4FE]/45 focus:border-[#D8B4FE] rounded-[2px] focus:outline-none"
                 />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModeEText(selectedRuntime.modeERatio.toFixed(2));
-                    setEditingModeE(true);
-                  }}
-                  title="Click to type custom multiplier (e.g. 0.85, 2.20)"
-                  className="px-2 py-0.5 font-typewriter font-bold text-[11px] text-[#FAF6FF] bg-[#250A33] hover:bg-[#361547] border border-[#D8B4FE]/35 rounded-[2px] cursor-text"
-                >
-                  {selectedRuntime.modeERatio.toFixed(2)}×
-                </button>
-              )}
+                <span className="font-typewriter text-[10px] text-[#C8B2E0]">×</span>
+              </div>
             </div>
             <input
               type="range"
-              min={0.5}
-              max={1.5}
+              aria-label="Mode E multiplier slider"
+              min={MODE_E_MIN}
+              max={MODE_E_MAX}
               step={0.01}
-              value={Math.max(0.5, Math.min(1.5, selectedRuntime.modeERatio))}
+              value={Math.max(MODE_E_MIN, Math.min(MODE_E_MAX, selectedRuntime.modeERatio))}
               onPointerUp={onCommitPoseHistory}
               onChange={(e) =>
                 onChangeModeERatio(selected.id, parseFloat(e.target.value))
